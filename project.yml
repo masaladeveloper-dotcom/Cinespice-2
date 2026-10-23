@@ -30,6 +30,9 @@ targets:
     sources:
       - path: Sources
       - path: Resources/Assets.xcassets
+      - path: Resources/TelegramBuildCredentials.plist
+        optional: true
+        buildPhase: resources
     dependencies:
       - sdk: libsqlite3.tbd
       - package: TDLibFramework

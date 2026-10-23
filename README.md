@@ -220,3 +220,16 @@ player ideas are recorded in [nextupdare.md](nextupdare.md) for later discussion
 Review notices and obligations for TDLibFramework/TDLib and MobileVLCKit. Telegram,
 VLC-iOS, TeleSpeed and Nuvio source checkouts were inspected as references; their
 full applications or plugin systems are not copied into Cinespice.
+
+## Telegram credentials for iOS builds
+
+Set repository Actions secrets `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` before
+running the iOS workflow. It validates them and generates an ignored resource
+before XcodeGen runs. The app connects automatically and asks only for account
+sign-in details. Missing or invalid secrets fail the build without printing values.
+For local builds, export the same variables and run
+`python3 scripts/configure-telegram.py` before generating the Xcode project.
+The generated resource is bundled in the app; build secrets prevent source/log
+exposure, but do not make credentials unextractable from a distributed app.
+Fork PR builds require an authorized build with these secrets; do not expose
+secrets through pull_request_target or run untrusted code with them.

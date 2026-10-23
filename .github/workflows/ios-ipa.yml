@@ -49,6 +49,11 @@ jobs:
           swift --version
           xcodegen --version
           pod --version
+      - name: Configure Telegram credentials
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        run: python3 scripts/configure-telegram.py
       - name: Generate project and resolve TDLib
         run: |
           xcodegen generate --spec project.yml
