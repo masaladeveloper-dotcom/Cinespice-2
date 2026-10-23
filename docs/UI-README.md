@@ -93,15 +93,18 @@ Slots may show the same video in a small library. No automatic carousel motion.
 
 ## Color and materials
 
+See [Cinema design system](DESIGN-SYSTEM.md) for the current visual language and Apple references.
+
+
 | Palette | Mode | Background | Surface | Accent |
 | --- | --- | --- | --- | --- |
+| Cinema (default) | Dark | `#08090B` | `#1C1C1E` | `#F5F5F7` |
 | Ember | Dark | `#0B0B0D` | `#1B1B20` | `#FF774A` |
 | Midnight | Dark | `#0D1424` | `#1C2940` | `#91ADFF` |
 | Pearl | Light | `#F8F4EF` | `#E9E2DA` | `#A63D25` |
 | Sage | Light | `#F1F6F2` | `#DFEAE2` | `#226347` |
 
-Dark text tokens: primary 96% white, secondary 69% white. Light text tokens:
-primary 9% white, secondary 36% white. Artwork overlays always use white text on
+Foreground text uses UIKit semantic label and secondary-label colors in every palette. Artwork overlays always use white text on
 dark gradients, regardless of palette. Persist preference under `cinespice.theme`.
 System lists retain native row treatment; their surrounding background is themed.
 
@@ -114,14 +117,14 @@ require device checks; syntax parsing does not verify SwiftUI rendering.
 
 Keep the video black-backed in every palette. Preserve manual one-tap orientation,
 camera-safe Fit, timeline, ±10 seconds, play/pause, tracks, speed, picture and lock.
-Options use a dark `#141414` panel with an orange outline, not a full system sheet.
+Options use a dark `#1C1C1C` panel with a subtle neutral border, not a full system sheet.
 Portrait panel width is capped at 420 points; landscape at 340, bottom trailing.
 The scrollable options area is capped at 32% of available portrait height or 60%
 of landscape height, plus a compact title/close row and padding. Long option lists
 scroll inside the panel. Outside tap or X dismisses; no full-screen dim layer.
 
 All existing subtitle sizes, track selection/import, delays, picture ratios and
-speed settings remain. Player controls still cover part of the picture while
+speed settings remain. Player transport and timeline use neutral white controls. Player controls still cover part of the picture while
 visible. Exact VLC application UI/feature parity is not claimed. Visible branding
 is Cinespice; creator credit is “Created by Masalaots · @notmasalaoats”. Profile
 links use camera/paperplane symbols for Instagram/Telegram (not copied brand art).
@@ -131,7 +134,7 @@ Dependency/source/licensing documentation remains in the repository.
 
 Run the new native build, then the [device checklist](TOUCH-CHECKLIST.md) on a
 notched iPhone, small iPhone and iPad, portrait and locked landscape. Verify all
-four palettes, keyboard interactions, independent scrolling, upgrade persistence,
+five palettes, keyboard interactions, independent scrolling, upgrade persistence,
 completed download restart/export, seven hero slots and player options. Portable
 unit tests do not establish visual correctness or iOS touch behavior.
 

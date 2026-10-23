@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CollectionPicker: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
@@ -29,8 +29,8 @@ struct CollectionPicker: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 20) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Only your picks.\nOnly your screen.").font(.system(size: 30, weight: .bold)).tracking(-1)
-                            Text("Owned channels appear first, oldest Telegram date first. Select the sources you want. Only selected channels and groups load videos.").font(.subheadline).foregroundStyle(theme.muted)
+                            Text("Your channels").font(.largeTitle.weight(.bold)).tracking(-1)
+                            Text("Choose the channels and groups that make up your library.").font(.subheadline).foregroundStyle(theme.muted)
                         }
                         Picker("Channels to display", selection: $scope) {
                             Text("My channels").tag(0); Text("Selected").tag(1); Text("All sources").tag(2)
@@ -39,7 +39,7 @@ struct CollectionPicker: View {
                             Image(systemName: "magnifyingglass").foregroundStyle(theme.muted)
                             TextField("Search your Telegram channels", text: $query).textInputAutocapitalization(.never).disableAutocorrection(true)
                             if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Clear channel search") }
-                        }.frame(minHeight: 44).padding(.horizontal, 14).padding(.vertical, 4).background(theme.surface, in: RoundedRectangle(cornerRadius: 10))
+                        }.frame(minHeight: 44).padding(.horizontal, 14).padding(.vertical, 4).background(theme.surface, in: RoundedRectangle(cornerRadius: 18))
                         if telegram.isSearchingChats { ProgressView("Searching Telegram…").tint(theme.accent) }
                         if collections.isEmpty && !telegram.isSearchingChats {
                             Text("No matching sources yet. Search by name or scan another batch, including archived chats.")
@@ -59,16 +59,16 @@ struct CollectionPicker: View {
                         Text("\(library.selectedCollections.count) selected · Only selected sources appear in your library").font(.caption).foregroundStyle(theme.muted)
                         if scanning || telegram.isLoadingChats { ProgressView("Finding channels and groups…").tint(theme.accent) }
                         else if telegram.hasMoreChats {
-                            Button { scanRevision += 1 } label: { Label("Continue finding sources", systemImage: "arrow.clockwise").frame(maxWidth: .infinity).padding(14).background(theme.surface, in: RoundedRectangle(cornerRadius: 10)) }
+                            Button { scanRevision += 1 } label: { Label("Continue finding sources", systemImage: "arrow.clockwise").frame(maxWidth: .infinity).padding(14).background(theme.surface, in: RoundedRectangle(cornerRadius: 18)) }
                         }
-                        Text("Search checks Telegram as well as saved metadata. Scanning alternates main and archived chats. Owned channels appear first. Tap a checkmark to remove a source, or its arrow to browse videos.").font(.caption).foregroundStyle(theme.muted)
+                        Text("Tap a channel to select it. Use its arrow to browse. Your own channels appear first.").font(.caption).foregroundStyle(theme.muted)
                         if !telegram.chatSearchError.isEmpty { Text(telegram.chatSearchError).foregroundStyle(.orange).font(.caption) }
                         if !library.error.isEmpty { Text(library.error).foregroundStyle(.orange).font(.caption) }
                         if !telegram.status.isEmpty { Text(telegram.status).foregroundStyle(.orange).font(.caption) }
                     }.padding(22)
                 }.scrollDismissesKeyboard(.interactively)
             }
-            .navigationTitle("Choose channels").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Channels").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() }.tint(theme.accent).disabled(!changing.isEmpty) } }
             .task(id: scanRevision) {
                 scanning = true
@@ -96,23 +96,23 @@ struct CollectionPicker: View {
                     Image(systemName: chat.isOwner == true ? "crown.fill" : "play.rectangle").foregroundStyle(selected ? theme.accent : theme.muted)
                 }.frame(width: 48, height: 48)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(chat.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.text).lineLimit(2)
+                    Text(chat.title).font(.body.weight(.semibold)).foregroundStyle(theme.text).lineLimit(2)
                     HStack(spacing: 5) {
                         Text(chat.isOwner == true ? "OWNER" : (chat.isChannel == true ? "CHANNEL" : "GROUP"))
                         if let date = chat.telegramDate, date > 0 { Text("·"); Text(Date(timeIntervalSince1970: Double(date)), style: .date) }
-                    }.font(.system(size: 10, weight: .medium)).foregroundStyle(theme.muted)
+                    }.font(.caption.weight(.medium)).foregroundStyle(theme.muted)
                 }
                 Spacer()
                 if changing.contains(chat.id) { ProgressView() }
                 else { Image(systemName: selected ? "checkmark.circle.fill" : "plus.circle").font(.title2).foregroundStyle(selected ? theme.accent : theme.muted) }
-            }.padding(12).frame(maxWidth: .infinity).background(theme.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 14)).contentShape(Rectangle())
+            }.padding(16).frame(maxWidth: .infinity).background(theme.surface, in: RoundedRectangle(cornerRadius: 20)).contentShape(Rectangle())
         }.buttonStyle(CinespicePressStyle()).disabled(changing.contains(chat.id))
             .accessibilityLabel("\(chat.title), \(selected ? "selected" : "not selected")")
     }
 }
 
 struct LibrarySettingsView: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var rangeServer: TelegramRangeServer
@@ -158,7 +158,7 @@ struct LibrarySettingsView: View {
                     Picker("Color palette", selection: $theme) {
                         ForEach(CinespiceTheme.allCases) { palette in Text(palette.title).tag(palette) }
                     }
-                    Text("Two dark and two light palettes. Player always uses a dark cinema surface.").font(.caption).foregroundStyle(theme.muted)
+                    Text("Cinema keeps the focus on your artwork. Choose a color palette to make it yours.").font(.caption).foregroundStyle(theme.muted)
                 }
                 Section("Requests") {
                     Label("Request a feature · Coming later", systemImage: "bubble.left.and.bubble.right").foregroundStyle(theme.muted)
@@ -194,14 +194,14 @@ struct LibrarySettingsView: View {
                 if working { ProgressView("Working…") }
                 if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.orange) }
             }
-            .scrollContentBackground(.hidden).background(theme.background)
-            .navigationTitle("Profile & settings").navigationBarTitleDisplayMode(.inline)
+            .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(theme.background)
+            .navigationTitle("Account").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() }.tint(theme.accent) } }
             .task { await refreshUsage() }
             .alert(item: $confirmation) { action in
                 Alert(title: Text(action.title), message: Text(action.detail), primaryButton: .destructive(Text(action == .logout ? "Sign out" : "Clear")) { perform(action) }, secondaryButton: .cancel())
             }
-        }.foregroundStyle(theme.text).tint(theme.accent).navigationViewStyle(.stack).preferredColorScheme(theme.scheme)
+        }.foregroundStyle(theme.text).tint(theme.accent).navigationViewStyle(.stack).preferredColorScheme(theme.scheme).presentationDragIndicator(.visible)
     }
     private func usage(_ title: String, bytes: Int64) -> some View {
         HStack { Text(title); Spacer(); Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)).foregroundStyle(theme.muted).font(.caption.monospacedDigit()) }

@@ -3,17 +3,23 @@ import UIKit
 
 /// Semantic palettes shared by every library surface. Player stays cinema black.
 enum CinespiceTheme: String, CaseIterable, Identifiable {
-    case ember, midnight, pearl, sage
+    case cinema, ember, midnight, pearl, sage
     var id: String { rawValue }
     var title: String {
-        switch self { case .ember: return "Ember · Dark"; case .midnight: return "Midnight · Dark"; case .pearl: return "Pearl · Light"; case .sage: return "Sage · Light" }
+        switch self { case .cinema: return "Cinema · Dark"; case .ember: return "Ember · Dark"; case .midnight: return "Midnight · Dark"; case .pearl: return "Pearl · Light"; case .sage: return "Sage · Light" }
     }
-    var scheme: ColorScheme { self == .ember || self == .midnight ? .dark : .light }
-    var background: Color { color([0x0B0B0D, 0x0D1424, 0xF8F4EF, 0xF1F6F2]) }
-    var surface: Color { color([0x1B1B20, 0x1C2940, 0xE9E2DA, 0xDFEAE2]) }
-    var accent: Color { color([0xFF774A, 0x91ADFF, 0xA63D25, 0x226347]) }
-    var text: Color { scheme == .dark ? Color(white: 0.96) : Color(white: 0.09) }
-    var muted: Color { scheme == .dark ? Color(white: 0.69) : Color(white: 0.36) }
+    var scheme: ColorScheme {
+        switch self {
+        case .cinema, .ember, .midnight: return .dark
+        case .pearl, .sage: return .light
+        }
+    }
+    var background: Color { color([0x08090B, 0x0B0B0D, 0x0D1424, 0xF8F4EF, 0xF1F6F2]) }
+    var surface: Color { color([0x1C1C1E, 0x1B1B20, 0x1C2940, 0xE9E2DA, 0xDFEAE2]) }
+    var accent: Color { color([0xF5F5F7, 0xFF774A, 0x91ADFF, 0xA63D25, 0x226347]) }
+    var text: Color { Color(uiColor: .label) }
+    var muted: Color { Color(uiColor: .secondaryLabel) }
+    var separator: Color { Color(uiColor: .separator) }
     private func color(_ values: [Int]) -> Color {
         let value = values[Self.allCases.firstIndex(of: self)!]
         return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
@@ -38,6 +44,7 @@ struct CinespiceButtonStyle: ButtonStyle {
 
 /// Animate the label inside a fixed touch target; respect the system motion preference.
 struct CinespicePressStyle: ButtonStyle {
+    var onPressChanged: (Bool) -> Void = { _ in }
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -46,6 +53,7 @@ struct CinespicePressStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
             .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.78), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed, perform: onPressChanged)
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
     }
@@ -53,7 +61,7 @@ struct CinespicePressStyle: ButtonStyle {
 
 /// Use native Liquid Glass with the iOS 26 SDK, keeping iOS 16 and older SDK builds supported.
 struct CinespiceDockMaterial: ViewModifier {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @ViewBuilder func body(content: Content) -> some View {
@@ -80,8 +88,17 @@ struct CinespiceDockMaterial: ViewModifier {
     }
 }
 
+struct CinespiceFieldStyle: TextFieldStyle {
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration.font(.body).padding(.horizontal, 16).frame(minHeight: 56)
+            .background(theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.separator.opacity(0.4), lineWidth: 0.5))
+    }
+}
+
 struct VideoArtwork: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var library: LibraryStore
     let video: TelegramVideo
@@ -99,9 +116,11 @@ struct VideoArtwork: View {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped()
                 } else {
-                    LinearGradient(colors: [Color.white.opacity(0.05), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: failed ? "photo" : "film")
-                        .font(.system(size: 28, weight: .ultraLight)).foregroundStyle(theme.muted.opacity(0.5))
+                    LinearGradient(colors: [theme.accent.opacity(0.12), theme.surface, theme.background], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    VStack(spacing: 12) {
+                        Image(systemName: "film.stack").font(.system(size: 30, weight: .regular))
+                        Text(video.title).font(.caption.weight(.medium)).lineLimit(3).multilineTextAlignment(.center)
+                    }.foregroundStyle(theme.muted).padding(18)
                 }
             }
         }
@@ -127,11 +146,12 @@ struct VideoArtwork: View {
 }
 
 struct VideoCard: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var library: LibraryStore
     let video: TelegramVideo
     var wide = false
+    var compact = false
     var opening = false
     @State private var savingHistory = false
     @State private var savingList = false
@@ -141,69 +161,86 @@ struct VideoCard: View {
     let info: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Button(action: info) {
-                ZStack(alignment: .bottomLeading) {
-                    VideoArtwork(video: video)
-                    LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(video.formatLabel).font(.system(size: 8, weight: .bold)).padding(4).background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 3))
-                            if library.display(video).isDownloaded { Image(systemName: "arrow.down.circle.fill").accessibilityLabel("Downloaded") }
-                            Spacer()
-                            if video.duration > 0 { Text(duration(video.duration)).font(.system(size: 10, weight: .semibold, design: .monospaced)) }
-                        }
-                        if let progress = library.snapshot.history[video.id], progress.canResume {
-                            ProgressView(value: progress.fraction).tint(theme.accent).background(Color.white.opacity(0.2))
-                        }
-                    }.padding(12).foregroundStyle(.white)
-                    if opening { ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity) }
-                }
-                .aspectRatio(wide ? 16 / 9 : 0.73, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.text.opacity(0.08), lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
-                .contentShape(Rectangle())
-            }.buttonStyle(CinespicePressStyle()).accessibilityLabel("Details for \(video.title)")
-            HStack(alignment: .top, spacing: 5) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(video.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
-                    if telegram.preparingDownloads.contains(video.id) {
-                        ProgressView("Preparing download…").font(.caption2)
-                    } else if telegram.cancellingDownloads.contains(video.fileID) {
-                        ProgressView("Cancelling download…").font(.caption2)
-                    } else if telegram.fullDownloads.contains(video.fileID) {
-                        Text("Downloading · \(ByteCountFormatter.string(fromByteCount: library.display(video).downloadedBytes, countStyle: .file))").font(.caption2).foregroundStyle(theme.accent)
-                    }
-                    HStack(spacing: 6) {
-                        if library.snapshot.savedLists["Favorites"]?.contains(video.id) == true { Image(systemName: "heart.fill").accessibilityLabel("Favorite") }
-                        if library.snapshot.savedLists["Watchlist"]?.contains(video.id) == true { Image(systemName: "bookmark.fill").accessibilityLabel("In Watchlist") }
-                        if let year = video.filenameYear { Text(String(year)).accessibilityLabel("Filename year \(year)") }
-                    }.font(.caption2).foregroundStyle(theme.accent)
-                    if savingList { ProgressView("Saving list…").font(.caption2) }
-                    if savingHistory { ProgressView("Saving history…").font(.caption2) }
-                    else if library.snapshot.history[video.id]?.completed == true { Text("Watched").font(.caption2).foregroundStyle(theme.accent) }
-                    Text(library.snapshot.collections.first(where: { $0.id == video.chatID })?.title ?? "Telegram")
-                        .font(.caption).foregroundStyle(theme.muted).lineLimit(1)
-                }
-
+        Group {
+            if compact {
+                HStack(alignment: .top, spacing: 16) {
+                    artwork.frame(width: 82)
+                    VStack(alignment: .leading, spacing: 8) { metadata; controls }
+                }.padding(16).background(theme.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            } else {
+                VStack(alignment: .leading, spacing: 10) { artwork; metadata; controls }
             }
-            HStack(spacing: 4) {
-                Button { play(true) } label: {
-                    Image(systemName: "play.fill").font(.system(size: 13, weight: .semibold))
-                        .offset(x: 1).frame(width: 34, height: 34)
-                        .background(theme.text, in: Circle()).foregroundStyle(theme.background)
-                        .frame(width: 44, height: 44)
-                }.disabled(opening).accessibilityLabel("Play \(video.title)")
-                Spacer(minLength: 0)
-                Button(action: info) {
-                    Image(systemName: "info.circle").font(.system(size: 21, weight: .regular))
-                        .foregroundStyle(theme.muted).frame(width: 44, height: 44)
-                }.accessibilityLabel("More info about \(video.title)")
-            }.buttonStyle(CinespicePressStyle())
         }.foregroundStyle(theme.text)
             .contextMenu { videoActions }
             .accessibilityAction(named: Text("More info"), info)
+    }
+    private var artwork: some View {
+        Button(action: info) {
+            ZStack(alignment: .bottomLeading) {
+                VideoArtwork(video: video)
+                LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
+                VStack(alignment: .leading, spacing: 8) {
+                    if !compact { HStack {
+                        Text(video.formatLabel).font(.caption2.weight(.semibold)).padding(4).background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 3))
+                        if library.display(video).isDownloaded { Image(systemName: "arrow.down.circle.fill").accessibilityLabel("Downloaded") }
+                        Spacer()
+                        if video.duration > 0 { Text(duration(video.duration)).font(.caption2.monospacedDigit()) }
+                    }
+                    }
+                    if let progress = library.snapshot.history[video.id], progress.canResume {
+                        ProgressView(value: progress.fraction).tint(theme.accent).background(Color.white.opacity(0.2))
+                    }
+                }.padding(12).foregroundStyle(.white)
+                if opening { ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            }
+            .aspectRatio(wide ? 16 / 9 : 0.73, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.text.opacity(0.08), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
+            .contentShape(Rectangle())
+        }.buttonStyle(CinespicePressStyle()).accessibilityLabel("Details for \(video.title)")
+    }
+    private var metadata: some View {
+        HStack(alignment: .top, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(video.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
+                if telegram.preparingDownloads.contains(video.id) {
+                    ProgressView("Preparing download…").font(.caption2)
+                } else if telegram.cancellingDownloads.contains(video.fileID) {
+                    ProgressView("Cancelling download…").font(.caption2)
+                } else if telegram.fullDownloads.contains(video.fileID) {
+                    Text("Downloading · \(ByteCountFormatter.string(fromByteCount: library.display(video).downloadedBytes, countStyle: .file))").font(.caption2).foregroundStyle(theme.accent)
+                }
+                HStack(spacing: 6) {
+                    if library.snapshot.savedLists["Favorites"]?.contains(video.id) == true { Image(systemName: "heart.fill").accessibilityLabel("Favorite") }
+                    if library.snapshot.savedLists["Watchlist"]?.contains(video.id) == true { Image(systemName: "bookmark.fill").accessibilityLabel("In Watchlist") }
+                    if let year = video.filenameYear { Text(String(year)).accessibilityLabel("Filename year \(year)") }
+                }.font(.caption).foregroundStyle(theme.muted)
+                if savingList { ProgressView("Saving list…").font(.caption2) }
+                if savingHistory { ProgressView("Saving history…").font(.caption2) }
+                else if library.snapshot.history[video.id]?.completed == true { Text("Watched").font(.caption2).foregroundStyle(theme.accent) }
+                if compact && library.display(video).isDownloaded { Label("Downloaded", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(theme.muted) }
+                if compact { Text(ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file)).font(.caption).foregroundStyle(theme.muted) }
+                Text(library.snapshot.collections.first(where: { $0.id == video.chatID })?.title ?? "Telegram")
+                    .font(.caption).foregroundStyle(theme.muted).lineLimit(1)
+            }
+
+        }
+    }
+    private var controls: some View {
+        HStack(spacing: 4) {
+            Button { play(true) } label: {
+                Image(systemName: "play.fill").font(.system(size: 13, weight: .semibold))
+                    .offset(x: 1).frame(width: 34, height: 34)
+                    .background(theme.text, in: Circle()).foregroundStyle(theme.background)
+                    .frame(width: 44, height: 44)
+            }.disabled(opening).accessibilityLabel("Play \(video.title)")
+            Spacer(minLength: 0)
+            Button(action: info) {
+                Image(systemName: "info.circle").font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(theme.muted).frame(width: 44, height: 44)
+            }.accessibilityLabel("More info about \(video.title)")
+        }.buttonStyle(CinespicePressStyle())
     }
     @ViewBuilder private var videoActions: some View {
         ForEach(["Favorites", "Watchlist"], id: \.self) { list in
@@ -243,13 +280,14 @@ struct VideoCard: View {
 }
 
 struct LibraryEmptyState: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     let symbol: String
     let title: String
     let detail: String
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: symbol).font(.system(size: 36, weight: .ultraLight)).foregroundStyle(theme.accent)
+            Image(systemName: symbol).font(.system(size: 32, weight: .regular)).foregroundStyle(theme.muted)
+                .frame(width: 76, height: 76).background(theme.surface, in: RoundedRectangle(cornerRadius: 24))
             Text(title).font(.title3.weight(.semibold))
             Text(detail).font(.subheadline).foregroundStyle(theme.muted).multilineTextAlignment(.center).lineSpacing(4)
         }.frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.vertical, 60)
@@ -257,7 +295,7 @@ struct LibraryEmptyState: View {
 }
 
 struct VideoDetailsView: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     @Environment(\.dismiss) private var dismiss
     let video: TelegramVideo
     var body: some View {
@@ -324,7 +362,7 @@ struct LibraryPageTrigger: View {
 /// Acknowledges every play tap before Telegram or disk work finishes. Blocks
 /// duplicate taps but keeps cancellation available, including with VoiceOver.
 struct MediaOpeningOverlay: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     let title: String
     let cancel: () -> Void
     var body: some View {
@@ -333,7 +371,7 @@ struct MediaOpeningOverlay: View {
             VStack(spacing: 16) {
                 ProgressView().tint(theme.accent).scaleEffect(1.3).padding(8)
                 Text("Loading media…").font(.headline)
-                Text("Warming up your cinema.").font(.subheadline).foregroundStyle(.secondary)
+                Text("Getting your video ready.").font(.subheadline).foregroundStyle(.secondary)
                 Text(title).font(.caption).lineLimit(2).multilineTextAlignment(.center)
                 Button(action: cancel) {
                     Text("Cancel").font(.subheadline.weight(.semibold))
@@ -341,7 +379,7 @@ struct MediaOpeningOverlay: View {
                         .background(.white.opacity(0.1), in: Capsule())
                 }.buttonStyle(CinespiceButtonStyle())
             }.padding(28).frame(maxWidth: 330)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+                .background(theme.surface, in: RoundedRectangle(cornerRadius: 28))
                 .padding(24).accessibilityElement(children: .contain)
         }.transition(.opacity)
     }

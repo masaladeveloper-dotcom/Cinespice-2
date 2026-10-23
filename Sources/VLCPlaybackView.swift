@@ -24,7 +24,7 @@ struct VLCPlaybackView: View {
     @State private var message = ""
     @State private var suspended = false
     private let onClose: () -> Void
-    private let spice = Color(red: 1, green: 0.43, blue: 0.12)
+    private let spice = Color.white
 
     init(selection: PlaybackSelection, library: LibraryStore, onClose: @escaping () -> Void) {
         self.onClose = onClose
@@ -100,7 +100,7 @@ struct VLCPlaybackView: View {
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
-        .buttonStyle(CinespiceButtonStyle { pressed in
+        .buttonStyle(CinespicePressStyle { pressed in
             pressingControl = pressed; interaction = UUID()
         })
         .onAppear { playback.start(); UIApplication.shared.isIdleTimerDisabled = true }
@@ -172,7 +172,7 @@ struct VLCPlaybackView: View {
                 .accessibilityLabel("Close player").accessibilityIdentifier("player.close").disabled(closing)
             VStack(alignment: .leading, spacing: 4) {
                 Text(playback.selection.video.fileName ?? playback.selection.video.title).font(.subheadline.weight(.semibold)).lineLimit(2)
-                Text("CINESPICE").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(spice)
+                Text("cinespice").font(.caption.weight(.medium)).foregroundStyle(.white.opacity(0.65))
             }
             Spacer(minLength: 0)
             Button { locked = true } label: { Image(systemName: "lock.open").frame(width: 44, height: 44) }.accessibilityLabel("Lock controls")
@@ -182,7 +182,7 @@ struct VLCPlaybackView: View {
         HStack(spacing: 28) {
             Button { playback.seek(-10); feedback("−10 seconds") } label: { Image(systemName: "gobackward.10").font(.system(size: 28)).frame(width: 48, height: 48) }.disabled(!playback.seekable).accessibilityLabel("Back ten seconds")
             Button { playback.toggle(); feedback(playback.showsPause ? "Resuming…" : "Paused") } label: {
-                Image(systemName: playback.showsPause ? "pause.fill" : "play.fill").font(.system(size: 38)).frame(width: 64, height: 60)
+                Image(systemName: playback.showsPause ? "pause.fill" : "play.fill").font(.system(size: 28, weight: .semibold)).frame(width: 60, height: 60).background(.white.opacity(0.16), in: Circle())
             }.accessibilityLabel(playback.showsPause ? "Pause" : "Play")
             Button { playback.seek(10); feedback("+10 seconds") } label: { Image(systemName: "goforward.10").font(.system(size: 28)).frame(width: 48, height: 48) }.disabled(!playback.seekable).accessibilityLabel("Forward ten seconds")
         }
@@ -224,7 +224,7 @@ struct VLCPlaybackView: View {
     }
     private func options(_ title: String, maxHeight: CGFloat) -> some View {
         VStack(spacing: 4) {
-            HStack { Text(title.uppercased()).font(.system(.headline, design: .rounded)); Spacer(); Button { panel = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("Close options") }
+            HStack { Text(title).font(.headline); Spacer(); Button { panel = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("Close options") }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if title == "Speed" {
@@ -255,8 +255,9 @@ struct VLCPlaybackView: View {
                     }
                 }
             }.frame(maxHeight: min(440, maxHeight))
-        }.padding(12).background(Color(white: 0.08).opacity(0.96), in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(spice.opacity(0.3)).allowsHitTesting(false))
+        }.padding(16).background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.1), lineWidth: 0.5).allowsHitTesting(false))
+            .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
     }
     private var trackOptions: some View {
         VStack(alignment: .leading, spacing: 12) {

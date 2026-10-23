@@ -2,12 +2,14 @@ import SwiftUI
 import UIKit
 
 struct TelegramLibraryView: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
     @AppStorage("cinespice.order") private var order: LibraryOrder = .latestRelease
     @Environment(\.scenePhase) private var scenePhase
     @State private var dailySeed = Int(Date().timeIntervalSince1970 / 86400)
     @State private var savedList = "New Releases"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .body) private var posterWidth: CGFloat = 160
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Namespace private var dockSelection
     @Namespace private var librarySelection
     @State private var lastSearchVideo: TelegramVideo?
@@ -138,8 +140,8 @@ struct TelegramLibraryView: View {
                     .minimumScaleFactor(0.6).lineLimit(1).foregroundStyle(theme.text)
             }.accessibilityLabel("Cinespice, refresh current library")
             Spacer(minLength: 0)
-            Button { showCollections = true } label: { Image(systemName: "rectangle.stack").frame(width: 44, height: 44) }.accessibilityLabel("Channels and groups")
-            Button { showSettings = true } label: { Image(systemName: "person.crop.circle").frame(width: 44, height: 44) }.accessibilityLabel("Profile and settings")
+            Button { showCollections = true } label: { Image(systemName: "rectangle.stack").font(.system(size: 18, weight: .medium)).frame(width: 40, height: 40).background(theme.surface, in: Circle()).frame(width: 44, height: 44) }.accessibilityLabel("Channels and groups")
+            Button { showSettings = true } label: { Image(systemName: "person.crop.circle.fill").font(.system(size: 30, weight: .regular)).foregroundStyle(theme.muted).frame(width: 44, height: 44) }.accessibilityLabel("Profile and settings")
         }.padding(.horizontal, 20).padding(.vertical, 6).background(theme.background.opacity(0.96)).buttonStyle(CinespicePressStyle())
     }
 
@@ -204,7 +206,7 @@ struct TelegramLibraryView: View {
         }.prefix(15))
     }
 
-    private var heroHeight: CGFloat { min(440, max(290, viewport.height * 0.49)) }
+    private var heroHeight: CGFloat { dynamicTypeSize.isAccessibilitySize ? 560 : min(500, max(340, viewport.height * 0.52)) }
     private var dailyVideo: TelegramVideo? {
         let items = library.videos.sorted { $0.id < $1.id }
         guard !items.isEmpty else { return nil }
@@ -227,13 +229,13 @@ struct TelegramLibraryView: View {
     }
     private func heroSlot(_ title: String, video: TelegramVideo?, empty: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title.uppercased()).font(.caption2.bold()).tracking(1.5).foregroundStyle(theme.accent).padding(.horizontal, 20).padding(.vertical, 8)
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.muted).padding(.horizontal, 20).padding(.vertical, 8)
             if let video { hero(video) }
             else {
                 ZStack {
                     LinearGradient(colors: [theme.accent.opacity(0.2), theme.surface], startPoint: .topTrailing, endPoint: .bottomLeading)
                     LibraryEmptyState(symbol: title.hasPrefix("Trending") ? "sparkles" : "play.rectangle", title: title, detail: empty)
-                }.frame(height: heroHeight).clipShape(RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 16)
+                }.frame(height: heroHeight).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous)).padding(.horizontal, 20)
             }
             Spacer(minLength: 28)
         }
@@ -251,13 +253,13 @@ struct TelegramLibraryView: View {
             LinearGradient(colors: [.black.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing).allowsHitTesting(false)
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 6) {
-                    Text("C").font(.system(size: 22, weight: .black)).foregroundStyle(theme.accent)
-                    Text(library.snapshot.collections.first(where: { $0.id == video.chatID })?.title.uppercased() ?? "YOUR LIBRARY").font(.system(size: 10, weight: .semibold)).tracking(2).lineLimit(1)
+                    Image(systemName: "rectangle.stack.fill").font(.caption)
+                    Text(library.snapshot.collections.first(where: { $0.id == video.chatID })?.title ?? "Your library").font(.subheadline.weight(.medium)).lineLimit(1)
                 }
                 // Keep tracking on Text before View modifiers.
-                Text(video.title).tracking(-0.9).font(.system(size: 27, weight: .heavy)).lineLimit(2)
-                HStack(spacing: 10) { Text(video.formatLabel).font(.system(size: 10, weight: .bold)).padding(.horizontal, 5).padding(.vertical, 3).overlay(RoundedRectangle(cornerRadius: 2).stroke(.white.opacity(0.6))); Text(ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file)).font(.caption); if video.duration > 0 { Text("\(video.duration / 60) min").font(.caption) } }.foregroundStyle(.white.opacity(0.8))
-                if let caption = video.caption { Text(caption).font(.subheadline).foregroundStyle(.white.opacity(0.75)).lineLimit(2) }
+                Text(video.title).tracking(-0.8).font(.largeTitle.weight(.bold)).lineLimit(2)
+                HStack(spacing: 10) { Text(video.formatLabel).font(.caption.weight(.semibold)).padding(.horizontal, 5).padding(.vertical, 3).overlay(RoundedRectangle(cornerRadius: 2).stroke(.white.opacity(0.6))); Text(ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file)).font(.caption); if video.duration > 0 { Text("\(video.duration / 60) min").font(.caption) } }.foregroundStyle(.white.opacity(0.8))
+                if let caption = video.caption, !dynamicTypeSize.isAccessibilitySize { Text(caption).font(.subheadline).foregroundStyle(.white.opacity(0.75)).lineLimit(2) }
                 HStack(spacing: 12) {
                     Button { play(video) } label: {
                         Image(systemName: "play.fill").font(.system(size: 17, weight: .semibold)).offset(x: 1)
@@ -271,7 +273,7 @@ struct TelegramLibraryView: View {
                     }.accessibilityLabel("More info about " + video.title)
                 }.buttonStyle(CinespicePressStyle())
             }.padding(.horizontal, 24).padding(.bottom, 20)
-        }.frame(height: heroHeight).foregroundStyle(.white).clipShape(RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 16).contentShape(Rectangle())
+        }.frame(height: heroHeight).foregroundStyle(.white).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous)).padding(.horizontal, 20).contentShape(Rectangle())
     }
 
     private var personalLibraryPage: some View {
@@ -330,7 +332,7 @@ struct TelegramLibraryView: View {
             HStack { Text("\(items.count) titles").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
             releaseSortHint
             if items.isEmpty { LibraryEmptyState(symbol: "arrow.down.circle", title: "Take your cinema with you", detail: "Full downloads from selected sources appear here. Partial streaming buffers are not downloads.") }
-            else { grid(items) }
+            else { LazyVStack(spacing: 12) { ForEach(items) { card($0, compact: true) } }.padding(.horizontal, 20) }
         }
     }
 
@@ -365,7 +367,7 @@ struct TelegramLibraryView: View {
         return VStack(alignment: .leading, spacing: 22) {
             pageTitle("Search", subtitle: "Find your next favorite.")
             HStack { Image(systemName: "magnifyingglass").foregroundStyle(theme.muted); TextField("Video title or filename", text: $query).textInputAutocapitalization(.never); if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Clear search") } }
-                .frame(minHeight: 44).padding(.horizontal, 15).padding(.vertical, 4).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 24)
+                .frame(minHeight: 44).padding(.horizontal, 15).padding(.vertical, 4).background(theme.surface, in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 24)
             if text.isEmpty { LibraryEmptyState(symbol: "magnifyingglass", title: "What are you in the mood for?", detail: "Search video names and filenames in your selected channels and groups.") }
             else {
                 HStack { Text("\(results.count) results").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
@@ -392,7 +394,7 @@ struct TelegramLibraryView: View {
 
     private func posterRail(_ videos: [TelegramVideo], wide: Bool) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 16) { ForEach(videos) { video in card(video, wide: wide).frame(width: wide ? min(320, viewport.width * 0.72) : min(190, viewport.width * 0.39)) } }.padding(.horizontal, 20)
+            LazyHStack(alignment: .top, spacing: 16) { ForEach(videos) { video in card(video, wide: wide).frame(width: wide ? min(320, viewport.width * 0.72) : min(posterWidth, viewport.width * 0.7)) } }.padding(.horizontal, 20)
         }
     }
     private func rail(_ title: String, subtitle: String, videos: [TelegramVideo], wide: Bool) -> some View {
@@ -402,12 +404,12 @@ struct TelegramLibraryView: View {
         }
     }
     private func grid(_ videos: [TelegramVideo]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 18)], alignment: .leading, spacing: 28) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: min(posterWidth, max(140, viewport.width - 48))), spacing: 18)], alignment: .leading, spacing: 28) {
             ForEach(videos) { video in card(video) }
         }.padding(.horizontal, 24)
     }
-    private func card(_ video: TelegramVideo, wide: Bool = false) -> some View {
-        VideoCard(video: video, wide: wide, opening: openingID == video.id, play: { play(video, resume: $0) }, download: { rangeServer.stop(); telegram.download(video) }, export: { exportVideo(video) }, info: { detailsVideo = video })
+    private func card(_ video: TelegramVideo, wide: Bool = false, compact: Bool = false) -> some View {
+        VideoCard(video: video, wide: wide, compact: compact, opening: openingID == video.id, play: { play(video, resume: $0) }, download: { rangeServer.stop(); telegram.download(video) }, export: { exportVideo(video) }, info: { detailsVideo = video })
     }
     private func exportVideo(_ video: TelegramVideo) {
         guard !exporting else { return }; exporting = true
@@ -458,7 +460,6 @@ struct TelegramLibraryView: View {
         openingID = nil
         rangeServer.stop()
     }
-    private func eyebrow(_ text: String) -> some View { Text(text).font(.system(size: 9, weight: .bold)).tracking(2.3).foregroundStyle(theme.accent) }
     private func pageTitle(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.largeTitle.weight(.bold)).tracking(-0.8)
@@ -469,10 +470,10 @@ struct TelegramLibraryView: View {
     private func banner(_ message: String) -> some View { Text(message).font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 8) }
     private var tabs: some View {
         HStack(spacing: 2) {
-            tabButton(0, "Home", "house")
+            tabButton(0, "Home", "house.fill")
             tabButton(2, "Search", "magnifyingglass")
-            tabButton(1, "Library", "square.stack")
-            tabButton(3, "Downloads", "arrow.down.circle")
+            tabButton(1, "Library", "square.stack.fill")
+            tabButton(3, "Downloads", "arrow.down.circle.fill")
         }.padding(6).frame(maxWidth: 480)
             .modifier(CinespiceDockMaterial())
             .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
@@ -529,14 +530,21 @@ struct TelegramLibraryView: View {
         case .password: authForm("One more step", subtitle: "Enter your Telegram two-step verification password.") { SecureField("Password", text: $password); authButton { telegram.submitPassword(password) } }
         case .email: authForm("Your sign-in email", subtitle: "Telegram requires an email address for this login.") { TextField("Email", text: $email).keyboardType(.emailAddress); authButton { telegram.submitEmail(email) } }
         case .emailCode: authForm("Check your email", subtitle: "Enter the verification code from Telegram.") { TextField("Email code", text: $emailCode).keyboardType(.numberPad); authButton { telegram.submitEmailCode(emailCode) } }
-        case .loading: VStack(spacing: 24) { Text("CINESPICE").font(.system(size: 28, weight: .black, design: .rounded)).tracking(6); ProgressView("Restoring your library…").tint(theme.accent) }
+        case .loading: VStack(spacing: 24) { Image(systemName: "play.rectangle.fill").font(.system(size: 48, weight: .medium)); Text("cinespice").font(.title.weight(.bold)).tracking(-0.8); ProgressView("Opening your library…").tint(theme.accent) }
         case let .error(message): authForm("Connection needs attention", subtitle: message) { Button { telegram.resetAuth() } label: { Text("Retry connection").frame(minHeight: 44) }.buttonStyle(CinespiceButtonStyle()).tint(theme.accent) }
         case .ready: EmptyView()
         }
     }
-    private func authButton(_ action: @escaping () -> Void) -> some View { Button(action: action) {
-        HStack { if telegram.isAuthenticating { ProgressView() }; Text(telegram.isAuthenticating ? "Checking…" : "Continue") }.frame(minHeight: 44)
-    }.buttonStyle(.borderedProminent).tint(theme.accent).disabled(telegram.isAuthenticating) }
+    private func authButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if telegram.isAuthenticating { ProgressView().tint(theme.background) }
+                Text(telegram.isAuthenticating ? "Connecting…" : "Continue").font(.headline)
+                if !telegram.isAuthenticating { Image(systemName: "arrow.right").font(.subheadline.weight(.semibold)) }
+            }.frame(maxWidth: .infinity, minHeight: 56)
+                .foregroundStyle(theme.background).background(theme.text, in: RoundedRectangle(cornerRadius: 18))
+        }.buttonStyle(CinespicePressStyle()).disabled(telegram.isAuthenticating)
+    }
     private func authForm<Content: View>(_ title: String, subtitle: String, @ViewBuilder content: () -> Content) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 23) {
@@ -546,12 +554,13 @@ struct TelegramLibraryView: View {
                     }.disabled(telegram.isAuthenticating).frame(minHeight: 44)
                 }
                 Image(systemName: "play.rectangle.on.rectangle.fill")
-                    .font(.system(size: 48, weight: .light)).foregroundStyle(theme.accent)
-                    .padding(24).background(theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 28))
-                Text("cinespice").font(.system(size: 26, weight: .bold)).tracking(-0.8).foregroundStyle(theme.accent).padding(.bottom, 12)
+                    .font(.system(size: 46, weight: .medium)).foregroundStyle(theme.text)
+                    .frame(width: 100, height: 100).background(theme.surface, in: RoundedRectangle(cornerRadius: 30))
+                    .overlay(RoundedRectangle(cornerRadius: 30).strokeBorder(theme.separator.opacity(0.4), lineWidth: 0.5))
+                Text("cinespice").font(.system(size: 26, weight: .bold)).tracking(-0.8).foregroundStyle(theme.text).padding(.bottom, 12)
                 Text(title).font(.largeTitle.weight(.bold)).tracking(-0.8)
                 Text(subtitle).font(.subheadline).foregroundStyle(theme.muted).lineSpacing(5)
-                content().font(.body).textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).disableAutocorrection(true)
+                content().font(.body).textFieldStyle(CinespiceFieldStyle()).textInputAutocapitalization(.never).disableAutocorrection(true)
                 if !telegram.status.isEmpty { Text(telegram.status).font(.caption).foregroundStyle(.orange) }
             }.padding(28).padding(.top, 24).frame(maxWidth: 500).frame(maxWidth: .infinity)
         }
