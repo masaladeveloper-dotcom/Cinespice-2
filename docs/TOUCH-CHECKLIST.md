@@ -45,7 +45,7 @@ portrait, manually locked landscape, camera safe areas, an iPad and larger text.
 | Sign-in | Connect; Continue for phone/code/password/email; Back to sign in. Immediate busy state, one request, useful error/retry |
 | Library header | Back returns to library; Cinespice refreshes with feedback; the single Channels icon opens picker; Profile opens settings |
 | Home | Seven hero slots swipe; unavailable trends say so; hero Play/Resume starts one opening attempt; More info opens details |
-| Tabs | Home/Favorites/Search/Downloads/History activate from the entire visible cell; selected tab updates |
+| Tabs | Home/Search/Library/Downloads activate from the entire visible cell; selected tab updates |
 | Search | Clear button works from its whole target; typing does not shift the row height; Retry/More results show progress; tapping a result opens the intended file |
 | Posters | Play target matches the clipped image; adjacent posters and their menus do not steal taps; scrolling does not play a file |
 | Video menu | Play/resume, start over, download/cancel, Save to Files, mark watched and remove history act on that video; async work is visible |
@@ -66,7 +66,7 @@ taps. Record the installed commit and any failing control, orientation and scree
 
 ## Redesign acceptance (not yet exercised on a device)
 
-- Scroll a large collection to the bottom. Switch to History: top visible, at most
+- Scroll a large collection to the bottom. Switch to Library → History: top visible, at most
   five entries. Repeat with Favorites/Watchlist and every tab; return from player
   without losing the underlying scroll position.
 - Search is empty before typing. Clear the query: no cached results remain.

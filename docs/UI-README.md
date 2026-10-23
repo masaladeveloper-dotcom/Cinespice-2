@@ -8,7 +8,7 @@ See [Android translation](ANDROID-UI.md) and [device checks](TOUCH-CHECKLIST.md)
 
 - Header: CINESPICE refresh button, one Channels icon, Profile icon. A back arrow
   appears inside a collection. No duplicate search or channel-selection shortcuts.
-- Footer: **Home / Favorites / Search / Downloads / History**. Five equal cells in a floating material dock;
+- Footer: **Home / Search / Library / Downloads**. Four equal cells in a floating dock;
   48-point minimum targets, 3-point vertical padding. Header controls remain at
   least 44 points. Safe-area space is retained for the camera and home indicator.
 - Content uses 20–24-point margins, adaptive grids (140-point minimum cards),
@@ -28,10 +28,10 @@ See [Android translation](ANDROID-UI.md) and [device checks](TOUCH-CHECKLIST.md)
 | Page | Content and behavior |
 | --- | --- |
 | Home | Seven-slot swipe hero, Continue Watching (up to 12), and one horizontal row per selected channel (up to 15 cached videos). Each channel heading opens its collection. No global library grid or duplicate channel-card rail. Channel video order varies per app launch and stays stable while browsing; hero and Continue Watching retain their existing ordering. |
-| Favorites | Favorites and Watchlist segmented choices; empty guidance; sorting |
+| Library | Opens on New Releases from all selected channels, sorted by filename year; Favorites, Watchlist and History categories retain saved membership and history |
 | Search | Universal input across all selected channels and groups. Empty guidance initially; only nonempty queries show cached and remote results; paging remains bounded |
 | Downloads | Preparing, active and completed full downloads from selected sources; video menu exposes cancel/export; streaming fragments are excluded |
-| History | Five most recently watched entries; older resume positions remain stored |
+| Library → History | Five most recently watched entries; older resume positions remain stored |
 | Collection | One selected channel's videos, scoped search, shared sorting and explicit Load more / Retry pagination; no automatic endless scroll |
 | Profile | Real account display name/username, palette, request-feature placeholder, storage/history cleanup, creator links, sign-out |
 
@@ -67,7 +67,8 @@ always refreshes message/file state instead of blindly trusting stored paths.
 
 Default: **Latest releases**. Other choices: Earliest releases, Title A–Z, Title
 Z–A, Recently added, Oldest uploads. The choice is a local preference shared by
-library, collection, lists, downloads and search. History stays chronological.
+collection, saved lists, downloads and search. Library → New Releases always uses
+latest filename year order; History stays chronological.
 
 Until a metadata provider is connected, release sorting uses **filename year
 hints**, with the displayed title as fallback only when there is no filename.
@@ -94,7 +95,7 @@ Slots may show the same video in a small library. No automatic carousel motion.
 
 | Palette | Mode | Background | Surface | Accent |
 | --- | --- | --- | --- | --- |
-| Ember | Dark | `#101014` | `#202026` | `#FF774A` |
+| Ember | Dark | `#0B0B0D` | `#1B1B20` | `#FF774A` |
 | Midnight | Dark | `#0D1424` | `#1C2940` | `#91ADFF` |
 | Pearl | Light | `#F8F4EF` | `#E9E2DA` | `#A63D25` |
 | Sage | Light | `#F1F6F2` | `#DFEAE2` | `#226347` |
@@ -104,11 +105,10 @@ primary 9% white, secondary 36% white. Artwork overlays always use white text on
 dark gradients, regardless of palette. Persist preference under `cinespice.theme`.
 System lists retain native row treatment; their surrounding background is themed.
 
-Header/footer/search and the opening overlay use supported SwiftUI materials.
-This is a glass-inspired design, **not verified native iOS 27 Liquid Glass**.
-Minimum deployment remains iOS 16; last verified historical SDK was iOS 18.5 with
-Xcode 16.4. No speculative SDK APIs or dependency updates were introduced. Native
-rendering, contrast, Reduce Transparency and large text require device checks.
+The dock uses native Liquid Glass with the iOS 26 SDK/runtime and a SwiftUI
+material fallback on earlier systems. Reduce Transparency uses a solid surface.
+Minimum deployment remains iOS 16. Native rendering, contrast and large text
+require device checks; syntax parsing does not verify SwiftUI rendering.
 
 ## Player
 
@@ -139,7 +139,7 @@ unit tests do not establish visual correctness or iOS touch behavior.
 
 Cards expose compact Play and Info buttons with 44-point touch targets. Artwork
 opens details; long press reveals saved lists, playback, download/export and history
-actions using native context menus. Home uses landscape thumbnails.
+actions using native context menus. Home uses portrait cards in horizontal rows, including Continue Watching. Play controls use compact circles with at least 44-point touch targets.
 
 Login reads build-injected Telegram credentials; API entry fields are removed.
 Phone entry separates country calling code and national number. Code entry offers
@@ -149,3 +149,19 @@ does not merely change the visible screen while leaving an old challenge active.
 
 These changes intentionally replace the previous Home and credential-entry
 contracts. Native compilation, accessibility and device acceptance remain required.
+
+## Apple-inspired navigation and motion refinement
+
+- Four destinations: Home, Search, Library, Downloads. Library defaults to New Releases.
+  Release order continues to use filename year hints, never invented catalogue dates.
+- Channel rows retain the 15-title limit, horizontal scrolling and collection arrow.
+  Portrait artwork is independent of scroll direction.
+- Dock selection moves between destinations with a damped spring and selection haptic.
+  Press animations scale labels inside fixed touch targets. Reduce Motion disables
+  these animations; Reduce Transparency uses a solid dock surface.
+- Native Liquid Glass is used only with Swift 6.2+/iOS 26 SDK and iOS 26 runtime.
+  Older compilers and systems use the material fallback. Deployment stays iOS 16.
+- Details uses a poster, title and grouped file information; profile uses a larger
+  account header. Search, Downloads and login share larger, quieter headings.
+- Reference: https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass
+  and https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views

@@ -1,12 +1,15 @@
 import SwiftUI
+import UIKit
 
 struct TelegramLibraryView: View {
     @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
     @AppStorage("cinespice.order") private var order: LibraryOrder = .latestRelease
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var dailySeed = Int(Date().timeIntervalSince1970 / 86400)
-    @State private var savedList = "Favorites"
+    @State private var savedList = "New Releases"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var dockSelection
+    @Namespace private var librarySelection
     @State private var lastSearchVideo: TelegramVideo?
     @State private var refreshMessage = ""
     @EnvironmentObject private var telegram: TelegramClient
@@ -76,7 +79,7 @@ struct TelegramLibraryView: View {
             if stage != .ready {
                 cancelOpening()
                 showCollections = false; showSettings = false
-                lastSearchVideo = nil; tab = 0; selection = nil; exportFile = nil; collection = nil; detailsVideo = nil; query = ""; rangeServer.stop()
+                lastSearchVideo = nil; tab = 0; savedList = "New Releases"; selection = nil; exportFile = nil; collection = nil; detailsVideo = nil; query = ""; rangeServer.stop()
             }
         }
     }
@@ -90,29 +93,30 @@ struct TelegramLibraryView: View {
             header
             if !refreshMessage.isEmpty { Text(refreshMessage).font(.caption).foregroundStyle(theme.muted).padding(6) }
             if exporting { ProgressView("Preparing export…").font(.caption).tint(theme.accent).padding(10) }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 28) {
-                    if let collection { collectionPage(collection) }
-                    else {
-                        switch tab {
-                        case 1: favoritesPage
-                        case 2: searchPage
-                        case 3: downloadsPage
-                        case 4: historyPage
-                        case 5: collectionsPage
-                        default: home
+            ScrollViewReader { scroll in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 28) {
+                        if let collection { collectionPage(collection) }
+                        else {
+                            switch tab {
+                            case 1: personalLibraryPage
+                            case 2: searchPage
+                            case 3: downloadsPage
+                            default: home
+                            }
                         }
-                    }
-                    if !library.error.isEmpty { banner(library.error) }
-                    if !telegram.status.isEmpty { banner(telegram.status) }
-                }.padding(.bottom, 24).frame(maxWidth: 1200).frame(maxWidth: .infinity)
-            }.coordinateSpace(name: "library-scroll")
-                .scrollDismissesKeyboard(.interactively)
-                .id("\(tab)_\(collection?.id ?? 0)_\(tab == 1 ? savedList : "")_\(library.sessionID)")
+                        if !library.error.isEmpty { banner(library.error) }
+                        if !telegram.status.isEmpty { banner(telegram.status) }
+                    }.id("library-top").padding(.bottom, 24).frame(maxWidth: 1200).frame(maxWidth: .infinity)
+                }.coordinateSpace(name: "library-scroll")
+                    .scrollDismissesKeyboard(.interactively)
+                    .id("\(tab)_\(collection?.id ?? 0)_\(library.sessionID)")
+                    .onChange(of: savedList) { _ in scroll.scrollTo("library-top", anchor: .top) }
+            }
         }
 
         .safeAreaInset(edge: .bottom, spacing: 0) { tabs }
-        .buttonStyle(CinespiceButtonStyle())
+        .buttonStyle(CinespicePressStyle())
         .task(id: refreshMessage) {
             guard !refreshMessage.isEmpty else { return }
             do { try await Task.sleep(nanoseconds: 3_000_000_000) } catch { return }
@@ -130,13 +134,13 @@ struct TelegramLibraryView: View {
                 Button { collection = nil } label: { Image(systemName: "arrow.left").frame(width: 44, height: 44) }.accessibilityLabel("Back to library")
             }
             Button(action: refreshCurrentPage) {
-                Text("CINESPICE").tracking(-1).font(.system(size: 22, weight: .black, design: .rounded))
-                    .minimumScaleFactor(0.6).lineLimit(1).foregroundStyle(theme.accent)
+                Text("cinespice").tracking(-0.8).font(.system(size: 25, weight: .bold))
+                    .minimumScaleFactor(0.6).lineLimit(1).foregroundStyle(theme.text)
             }.accessibilityLabel("Cinespice, refresh current library")
             Spacer(minLength: 0)
             Button { showCollections = true } label: { Image(systemName: "rectangle.stack").frame(width: 44, height: 44) }.accessibilityLabel("Channels and groups")
             Button { showSettings = true } label: { Image(systemName: "person.crop.circle").frame(width: 44, height: 44) }.accessibilityLabel("Profile and settings")
-        }.padding(.horizontal, 16).padding(.vertical, 2).background(.ultraThinMaterial)
+        }.padding(.horizontal, 20).padding(.vertical, 6).background(theme.background.opacity(0.96)).buttonStyle(CinespicePressStyle())
     }
 
     private func refreshCurrentPage() {
@@ -164,9 +168,9 @@ struct TelegramLibraryView: View {
     }
 
     private var home: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 32) {
             heroCarousel
-            if !library.continueWatching.isEmpty { rail("Continue Watching", subtitle: "", videos: Array(library.continueWatching.prefix(12)), wide: true) }
+            if !library.continueWatching.isEmpty { rail("Continue Watching", subtitle: "", videos: Array(library.continueWatching.prefix(12)), wide: false) }
             if library.selectedCollections.isEmpty {
                 LibraryEmptyState(symbol: "rectangle.stack", title: "Your cinema starts here", detail: "Choose channels above to start exploring your videos.")
             }
@@ -177,12 +181,12 @@ struct TelegramLibraryView: View {
                         HStack {
                             Text(chat.title).font(.title3.weight(.bold)).lineLimit(1)
                             Spacer()
-                            Image(systemName: "arrow.right.circle.fill").foregroundStyle(theme.accent)
+                            Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(theme.muted)
                         }.foregroundStyle(theme.text).padding(.horizontal, 20).frame(minHeight: 44)
                     }.accessibilityLabel("Open " + chat.title)
                     if videos.isEmpty {
                         Text("No videos loaded yet. Open this channel to browse.").font(.subheadline).foregroundStyle(theme.muted).padding(.horizontal, 20)
-                    } else { posterRail(videos, wide: true) }
+                    } else { posterRail(videos, wide: false) }
                 }
             }
             if !telegram.loadingCollections.isEmpty { ProgressView("Loading a small page…").frame(maxWidth: .infinity).font(.caption).tint(theme.accent) }
@@ -198,41 +202,6 @@ struct TelegramLibraryView: View {
             let left = rank($0.id), right = rank($1.id)
             return left == right ? $0.id < $1.id : left < right
         }.prefix(15))
-    }
-
-    private func channelTile(_ chat: TelegramChat) -> some View {
-        let videos = library.videos.filter { $0.chatID == chat.id }
-        return Button { openCollection(chat) } label: {
-            ZStack(alignment: .bottomLeading) {
-                if let video = videos.first { VideoArtwork(video: video) }
-                else { theme.surface; Image(systemName: "play.rectangle").font(.system(size: 38, weight: .ultraLight)).foregroundStyle(theme.muted.opacity(0.45)).frame(maxWidth: .infinity, maxHeight: .infinity) }
-                LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
-                VStack(alignment: .leading, spacing: 5) {
-                    if chat.isOwner == true { Label { Text("YOUR CHANNEL").tracking(1) } icon: { Image(systemName: "crown.fill") }.font(.system(size: 8, weight: .bold)).foregroundStyle(theme.accent) }
-                    Text(chat.title).font(.system(size: 16, weight: .bold)).lineLimit(2)
-                    HStack(spacing: 4) { Text(videos.isEmpty ? "Loading videos…" : "\(videos.count) saved titles"); Spacer(); Image(systemName: "chevron.right") }.font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.7))
-                }.padding(14)
-            }.frame(height: 142).clipShape(RoundedRectangle(cornerRadius: 10)).contentShape(Rectangle())
-        }.buttonStyle(CinespiceButtonStyle())
-    }
-
-    private var collectionsPage: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            pageTitle("Your channels", subtitle: "CHOSEN BY YOU")
-            if library.selectedCollections.isEmpty { LibraryEmptyState(symbol: "rectangle.stack", title: "Choose your screen", detail: "Use Channels above to select the sources you want.") }
-            ForEach(library.selectedCollections) { chat in
-                let videos = order.sort(browseVideos.filter { $0.chatID == chat.id })
-                VStack(alignment: .leading, spacing: 10) {
-                    Button { openCollection(chat) } label: {
-                        HStack { Text(chat.title).font(.title3.weight(.bold)).lineLimit(1); Spacer(); Image(systemName: "chevron.right").font(.caption.weight(.semibold)) }
-                            .foregroundStyle(theme.text).padding(.horizontal, 20).frame(minHeight: 44).contentShape(Rectangle())
-                    }
-                    if videos.isEmpty { Text("Loading videos…").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 20) }
-                    else { posterRail(Array(videos.prefix(18)), wide: false) }
-                }
-            }
-            if !telegram.loadingCollections.isEmpty { ProgressView("Loading selected channels…").frame(maxWidth: .infinity).tint(theme.accent) }
-        }
     }
 
     private var heroHeight: CGFloat { min(440, max(290, viewport.height * 0.49)) }
@@ -291,32 +260,73 @@ struct TelegramLibraryView: View {
                 if let caption = video.caption { Text(caption).font(.subheadline).foregroundStyle(.white.opacity(0.75)).lineLimit(2) }
                 HStack(spacing: 12) {
                     Button { play(video) } label: {
-                        Label(openingID == video.id ? "Opening…" : (library.snapshot.history[video.id]?.canResume == true ? "Resume" : "Play"), systemImage: "play.fill")
-                            .font(.subheadline.weight(.bold)).foregroundStyle(.black).frame(maxWidth: .infinity).padding(.vertical, 13).background(.white, in: RoundedRectangle(cornerRadius: 5))
-                    }.disabled(openingID != nil)
-                    Button { detailsVideo = video } label: { Label("More info", systemImage: "info.circle").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 13).background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 5)) }
-                }
+                        Image(systemName: "play.fill").font(.system(size: 17, weight: .semibold)).offset(x: 1)
+                            .frame(width: 44, height: 44).foregroundStyle(.black).background(.white, in: Circle())
+                    }.disabled(openingID != nil).accessibilityLabel("Play " + video.title)
+                    Text(openingID == video.id ? "Opening…" : (library.snapshot.history[video.id]?.canResume == true ? "Resume" : "Play"))
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button { detailsVideo = video } label: {
+                        Image(systemName: "info.circle").font(.title2).frame(width: 44, height: 44)
+                    }.accessibilityLabel("More info about " + video.title)
+                }.buttonStyle(CinespicePressStyle())
             }.padding(.horizontal, 24).padding(.bottom, 20)
         }.frame(height: heroHeight).foregroundStyle(.white).clipShape(RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 16).contentShape(Rectangle())
     }
 
-    private var favoritesPage: some View {
-        let items = order.sort(library.videos.filter { library.snapshot.savedLists[savedList]?.contains($0.id) == true })
-        return VStack(alignment: .leading, spacing: 16) {
-            pageTitle("Saved for you", subtitle: "FAVORITES & WATCHLIST")
-            Picker("Saved list", selection: $savedList) { Text("Favorites").tag("Favorites"); Text("Watchlist").tag("Watchlist") }.pickerStyle(.segmented).padding(.horizontal, 24)
-            HStack { Text("\(items.count) titles").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
-            releaseSortHint
-            if items.isEmpty { LibraryEmptyState(symbol: savedList == "Favorites" ? "heart" : "bookmark", title: "Make it yours", detail: "Touch and hold a video to add it here. Saved items from deselected sources stay saved and reappear when selected again.") }
-            else { grid(items) }
-        }.id(savedList)
+    private var personalLibraryPage: some View {
+        let saved = library.videos.filter { library.snapshot.savedLists[savedList]?.contains($0.id) == true }
+        let items = savedList == "New Releases" ? LibraryOrder.latestRelease.sort(library.videos) : order.sort(saved)
+        return VStack(alignment: .leading, spacing: 24) {
+            pageTitle("Library", subtitle: "Everything you love, together.")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(["New Releases", "Favorites", "Watchlist", "History"], id: \.self) { category in
+                        Button {
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            withAnimation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.85)) { savedList = category }
+                        } label: {
+                            Text(category).font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 16).frame(minHeight: 44)
+                                .foregroundStyle(savedList == category ? theme.text : theme.muted)
+                                .background {
+                                    if savedList == category {
+                                        Capsule().fill(theme.surface).matchedGeometryEffect(id: "library-category", in: librarySelection)
+                                    }
+                                }
+                        }.buttonStyle(CinespicePressStyle())
+                            .accessibilityAddTraits(savedList == category ? .isSelected : [])
+                    }
+                }.padding(.horizontal, 20)
+            }
+            if savedList == "History" {
+                if library.watchedVideos.isEmpty {
+                    LibraryEmptyState(symbol: "clock", title: "Your story starts here", detail: "The videos you watch appear here, with your place saved.")
+                } else { grid(Array(library.watchedVideos.prefix(5))) }
+            } else {
+                HStack {
+                    Text("\(items.count) titles").font(.subheadline).foregroundStyle(theme.muted)
+                    Spacer()
+                    if savedList != "New Releases" { sortControl }
+                }.padding(.horizontal, 24)
+                if savedList == "New Releases" {
+                    Text("From your selected channels · Sorted by filename year")
+                        .font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 24)
+                } else { releaseSortHint }
+                if items.isEmpty {
+                    LibraryEmptyState(symbol: savedList == "New Releases" ? "film" : "bookmark",
+                                      title: savedList == "New Releases" ? "Make room for your next favorite" : "Save something for later",
+                                      detail: savedList == "New Releases" ? "Choose channels to bring their videos into your library." : "Touch and hold a video to add it to Favorites or Watchlist.")
+                } else { grid(items) }
+            }
+        }
     }
 
     private var downloadsPage: some View {
         let items = order.sort(library.videos.filter { library.display($0).isDownloaded || telegram.fullDownloads.contains($0.fileID) || telegram.preparingDownloads.contains($0.id) })
         return VStack(alignment: .leading, spacing: 16) {
-            pageTitle("Downloads", subtitle: "READY FOR YOUR NEXT WATCH")
-            Text("Touch and hold any video to download. Completed downloads offer Save to Files with the original filename. Clear local downloads in Profile → Storage.").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 24)
+            pageTitle("Downloads", subtitle: "Ready when you are.")
+            Text("Touch and hold a video to download or save it to Files.").font(.subheadline).foregroundStyle(theme.muted).padding(.horizontal, 24)
             HStack { Text("\(items.count) titles").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
             releaseSortHint
             if items.isEmpty { LibraryEmptyState(symbol: "arrow.down.circle", title: "Take your cinema with you", detail: "Full downloads from selected sources appear here. Partial streaming buffers are not downloads.") }
@@ -353,7 +363,7 @@ struct TelegramLibraryView: View {
         let merged = Dictionary((local + (text.isEmpty ? [] : telegram.videoSearchResults).filter { library.snapshot.selected.contains($0.chatID) }).map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let results = order.sort(Array(merged.values))
         return VStack(alignment: .leading, spacing: 22) {
-            pageTitle("Find your next watch.", subtitle: "SEARCH SELECTED CHANNELS & GROUPS")
+            pageTitle("Search", subtitle: "Find your next favorite.")
             HStack { Image(systemName: "magnifyingglass").foregroundStyle(theme.muted); TextField("Video title or filename", text: $query).textInputAutocapitalization(.never); if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Clear search") } }
                 .frame(minHeight: 44).padding(.horizontal, 15).padding(.vertical, 4).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 24)
             if text.isEmpty { LibraryEmptyState(symbol: "magnifyingglass", title: "What are you in the mood for?", detail: "Search video names and filenames in your selected channels and groups.") }
@@ -380,17 +390,9 @@ struct TelegramLibraryView: View {
         }
     }
 
-    private var historyPage: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            pageTitle("Your watching history", subtitle: "LAST FIVE WATCHED")
-            if library.watchedVideos.isEmpty { LibraryEmptyState(symbol: "clock", title: "The story starts here", detail: "Videos you play appear here. Your place is saved on this iPhone.") }
-            else { grid(Array(library.watchedVideos.prefix(5))) }
-        }
-    }
-
     private func posterRail(_ videos: [TelegramVideo], wide: Bool) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 10) { ForEach(videos) { video in card(video, wide: wide).frame(width: wide ? min(320, viewport.width * 0.72) : min(190, viewport.width * 0.39)) } }.padding(.horizontal, 20)
+            LazyHStack(alignment: .top, spacing: 16) { ForEach(videos) { video in card(video, wide: wide).frame(width: wide ? min(320, viewport.width * 0.72) : min(190, viewport.width * 0.39)) } }.padding(.horizontal, 20)
         }
     }
     private func rail(_ title: String, subtitle: String, videos: [TelegramVideo], wide: Bool) -> some View {
@@ -400,7 +402,7 @@ struct TelegramLibraryView: View {
         }
     }
     private func grid(_ videos: [TelegramVideo]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16)], alignment: .leading, spacing: 24) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 18)], alignment: .leading, spacing: 28) {
             ForEach(videos) { video in card(video) }
         }.padding(.horizontal, 24)
     }
@@ -457,33 +459,48 @@ struct TelegramLibraryView: View {
         rangeServer.stop()
     }
     private func eyebrow(_ text: String) -> some View { Text(text).font(.system(size: 9, weight: .bold)).tracking(2.3).foregroundStyle(theme.accent) }
-    private func pageTitle(_ title: String, subtitle: String) -> some View { VStack(alignment: .leading, spacing: 12) { eyebrow(subtitle); Text(title).font(.system(size: 28, weight: .bold)).tracking(-0.7) }.padding(.horizontal, 24).padding(.top, 16) }
+    private func pageTitle(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.largeTitle.weight(.bold)).tracking(-0.8)
+            Text(subtitle).font(.subheadline).foregroundStyle(theme.muted)
+        }.padding(.horizontal, 24).padding(.top, 20)
+    }
     private func sectionTitle(_ title: String, detail: String) -> some View { Text(title).font(.title3.weight(.bold)).padding(.horizontal, 20) }
     private func banner(_ message: String) -> some View { Text(message).font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 8) }
     private var tabs: some View {
-        HStack {
+        HStack(spacing: 2) {
             tabButton(0, "Home", "house")
-            tabButton(1, "Favorites", "heart")
             tabButton(2, "Search", "magnifyingglass")
+            tabButton(1, "Library", "square.stack")
             tabButton(3, "Downloads", "arrow.down.circle")
-            tabButton(4, "History", "clock")
-        }.padding(8)
-            .background {
-                if reduceTransparency {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(theme.surface)
-                } else {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
-                }
-            }
-            .overlay(RoundedRectangle(cornerRadius: 30).strokeBorder(theme.text.opacity(0.12), lineWidth: 1))
+        }.padding(6).frame(maxWidth: 480)
+            .modifier(CinespiceDockMaterial())
             .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
             .padding(.horizontal, 16).padding(.bottom, 8).padding(.top, 6)
     }
     private func tabButton(_ index: Int, _ title: String, _ symbol: String) -> some View {
-        Button { tab = index; collection = nil } label: {
-            VStack(spacing: 4) { Image(systemName: symbol).font(.system(size: 18, weight: tab == index ? .semibold : .regular)); Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.72) }.frame(maxWidth: .infinity, minHeight: 48).background(tab == index ? theme.accent.opacity(0.16) : .clear, in: Capsule()).contentShape(Rectangle())
-        }.accessibilityLabel(title).accessibilityAddTraits(tab == index ? .isSelected : [])
-            .foregroundStyle(tab == index ? theme.accent : theme.muted).accessibilityValue(tab == index ? "Selected" : "")
+        Button {
+            guard tab != index || collection != nil else { return }
+            UISelectionFeedbackGenerator().selectionChanged()
+            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82)) {
+                tab = index; collection = nil
+            }
+        } label: {
+            VStack(spacing: 5) {
+                Image(systemName: symbol).font(.system(size: 20, weight: tab == index ? .semibold : .regular))
+                    .scaleEffect(tab == index && !reduceMotion ? 1.06 : 1)
+                Text(title).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.85)
+            }.frame(maxWidth: .infinity, minHeight: 54)
+                .background {
+                    if tab == index {
+                        Capsule().fill(theme.text.opacity(0.1))
+                            .overlay(Capsule().strokeBorder(theme.text.opacity(0.08), lineWidth: 0.5))
+                            .matchedGeometryEffect(id: "dock-selection", in: dockSelection)
+                    }
+                }.contentShape(Capsule())
+        }.buttonStyle(CinespicePressStyle())
+            .accessibilityLabel(title).accessibilityAddTraits(tab == index ? .isSelected : [])
+            .foregroundStyle(tab == index ? theme.text : theme.muted).accessibilityValue(tab == index ? "Selected" : "")
     }
 
     @ViewBuilder private var authentication: some View {
@@ -531,12 +548,12 @@ struct TelegramLibraryView: View {
                 Image(systemName: "play.rectangle.on.rectangle.fill")
                     .font(.system(size: 48, weight: .light)).foregroundStyle(theme.accent)
                     .padding(24).background(theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 28))
-                Text("CINESPICE").font(.system(size: 22, weight: .black, design: .rounded)).tracking(5).foregroundStyle(theme.accent).padding(.bottom, 12)
-                Text(title).font(.system(size: 38, weight: .medium, design: .serif)).tracking(-1)
+                Text("cinespice").font(.system(size: 26, weight: .bold)).tracking(-0.8).foregroundStyle(theme.accent).padding(.bottom, 12)
+                Text(title).font(.largeTitle.weight(.bold)).tracking(-0.8)
                 Text(subtitle).font(.subheadline).foregroundStyle(theme.muted).lineSpacing(5)
                 content().font(.body).textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).disableAutocorrection(true)
                 if !telegram.status.isEmpty { Text(telegram.status).font(.caption).foregroundStyle(.orange) }
-            }.padding(28).frame(maxWidth: 500).frame(maxWidth: .infinity)
+            }.padding(28).padding(.top, 24).frame(maxWidth: 500).frame(maxWidth: .infinity)
         }
     }
 }

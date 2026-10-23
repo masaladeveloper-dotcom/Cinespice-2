@@ -78,7 +78,7 @@ struct CollectionPicker: View {
             .task(id: "\(scope)_\(query)") { await telegram.searchCollections(query, channelsOnly: scope == 0) }
             .onChange(of: scope) { _ in visibleLimit = 30 }
             .onChange(of: query) { _ in visibleLimit = 30 }
-        }.foregroundStyle(theme.text).tint(theme.accent).navigationViewStyle(.stack).preferredColorScheme(theme.scheme).buttonStyle(CinespiceButtonStyle())
+        }.foregroundStyle(theme.text).tint(theme.accent).navigationViewStyle(.stack).preferredColorScheme(theme.scheme).buttonStyle(CinespicePressStyle())
     }
     private func channel(_ chat: TelegramChat) -> some View {
         let selected = library.snapshot.selected.contains(chat.id)
@@ -106,7 +106,7 @@ struct CollectionPicker: View {
                 if changing.contains(chat.id) { ProgressView() }
                 else { Image(systemName: selected ? "checkmark.circle.fill" : "plus.circle").font(.title2).foregroundStyle(selected ? theme.accent : theme.muted) }
             }.padding(12).frame(maxWidth: .infinity).background(theme.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 14)).contentShape(Rectangle())
-        }.buttonStyle(CinespiceButtonStyle()).disabled(changing.contains(chat.id))
+        }.buttonStyle(CinespicePressStyle()).disabled(changing.contains(chat.id))
             .accessibilityLabel("\(chat.title), \(selected ? "selected" : "not selected")")
     }
 }
@@ -146,8 +146,13 @@ struct LibrarySettingsView: View {
         NavigationView {
             List {
                 Section("Profile") {
-                    Label(telegram.profileName.isEmpty ? "Your account" : telegram.profileName, systemImage: "person.crop.circle")
-                    if !telegram.profileUsername.isEmpty { Text("@" + telegram.profileUsername).foregroundStyle(theme.muted) }
+                    HStack(spacing: 16) {
+                        Image(systemName: "person.crop.circle.fill").font(.system(size: 48, weight: .light)).foregroundStyle(theme.muted)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(telegram.profileName.isEmpty ? "Your account" : telegram.profileName).font(.title3.weight(.semibold))
+                            if !telegram.profileUsername.isEmpty { Text("@" + telegram.profileUsername).font(.subheadline).foregroundStyle(theme.muted) }
+                        }
+                    }.padding(.vertical, 10)
                 }
                 Section("Appearance") {
                     Picker("Color palette", selection: $theme) {
@@ -167,7 +172,7 @@ struct LibrarySettingsView: View {
                 }
                 Section("Your library") {
                     Text("\(library.videos.count) indexed videos · \(library.selectedCollections.count) collections")
-                    Text("Collections, video metadata and watch history are saved in an account-specific SQLite database on this iPhone.").font(.caption).foregroundStyle(theme.muted)
+                    Text("Your channels and watch history are saved on this iPhone for your account.").font(.caption).foregroundStyle(theme.muted)
                     Button("Clear watch history", role: .destructive) { confirmation = .history }.disabled(working)
                 }
                 Section("Playback") {

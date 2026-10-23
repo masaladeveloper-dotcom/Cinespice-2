@@ -9,8 +9,8 @@ enum CinespiceTheme: String, CaseIterable, Identifiable {
         switch self { case .ember: return "Ember · Dark"; case .midnight: return "Midnight · Dark"; case .pearl: return "Pearl · Light"; case .sage: return "Sage · Light" }
     }
     var scheme: ColorScheme { self == .ember || self == .midnight ? .dark : .light }
-    var background: Color { color([0x101014, 0x0D1424, 0xF8F4EF, 0xF1F6F2]) }
-    var surface: Color { color([0x202026, 0x1C2940, 0xE9E2DA, 0xDFEAE2]) }
+    var background: Color { color([0x0B0B0D, 0x0D1424, 0xF8F4EF, 0xF1F6F2]) }
+    var surface: Color { color([0x1B1B20, 0x1C2940, 0xE9E2DA, 0xDFEAE2]) }
     var accent: Color { color([0xFF774A, 0x91ADFF, 0xA63D25, 0x226347]) }
     var text: Color { scheme == .dark ? Color(white: 0.96) : Color(white: 0.09) }
     var muted: Color { scheme == .dark ? Color(white: 0.69) : Color(white: 0.36) }
@@ -33,6 +33,50 @@ struct CinespiceButtonStyle: ButtonStyle {
             .background(configuration.isPressed && isEnabled ? Color.primary.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 10))
             .opacity(!isEnabled ? 0.35 : (configuration.isPressed ? 0.65 : 1))
             .onChange(of: configuration.isPressed, perform: onPressChanged)
+    }
+}
+
+/// Animate the label inside a fixed touch target; respect the system motion preference.
+struct CinespicePressStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.78), value: configuration.isPressed)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+    }
+}
+
+/// Use native Liquid Glass with the iOS 26 SDK, keeping iOS 16 and older SDK builds supported.
+struct CinespiceDockMaterial: ViewModifier {
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background(theme.surface, in: Capsule())
+        } else {
+#if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                content.glassEffect(.regular.interactive(), in: .capsule)
+            } else {
+                fallback(content)
+            }
+#else
+            fallback(content)
+#endif
+        }
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content.background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(
+                LinearGradient(colors: [theme.text.opacity(0.22), theme.text.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                lineWidth: 0.75))
     }
 }
 
@@ -116,12 +160,14 @@ struct VideoCard: View {
                     if opening { ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 }
                 .aspectRatio(wide ? 16 / 9 : 0.73, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.text.opacity(0.08), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
                 .contentShape(Rectangle())
-            }.buttonStyle(CinespiceButtonStyle()).accessibilityLabel("Details for \(video.title)")
+            }.buttonStyle(CinespicePressStyle()).accessibilityLabel("Details for \(video.title)")
             HStack(alignment: .top, spacing: 5) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(video.title).font(.system(size: 13, weight: .semibold)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(video.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
                     if telegram.preparingDownloads.contains(video.id) {
                         ProgressView("Preparing download…").font(.caption2)
                     } else if telegram.cancellingDownloads.contains(video.fileID) {
@@ -138,19 +184,23 @@ struct VideoCard: View {
                     if savingHistory { ProgressView("Saving history…").font(.caption2) }
                     else if library.snapshot.history[video.id]?.completed == true { Text("Watched").font(.caption2).foregroundStyle(theme.accent) }
                     Text(library.snapshot.collections.first(where: { $0.id == video.chatID })?.title ?? "Telegram")
-                        .font(.system(size: 10)).foregroundStyle(theme.muted).lineLimit(1)
+                        .font(.caption).foregroundStyle(theme.muted).lineLimit(1)
                 }
 
             }
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 Button { play(true) } label: {
-                    Label("Play", systemImage: "play.fill").font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(theme.accent, in: Capsule()).foregroundStyle(theme.scheme == .dark ? Color.black : Color.white)
+                    Image(systemName: "play.fill").font(.system(size: 13, weight: .semibold))
+                        .offset(x: 1).frame(width: 34, height: 34)
+                        .background(theme.text, in: Circle()).foregroundStyle(theme.background)
+                        .frame(width: 44, height: 44)
                 }.disabled(opening).accessibilityLabel("Play \(video.title)")
-                Button(action: info) { Image(systemName: "info.circle").font(.title3).frame(width: 44, height: 44) }
-                    .accessibilityLabel("More info about \(video.title)")
-            }
+                Spacer(minLength: 0)
+                Button(action: info) {
+                    Image(systemName: "info.circle").font(.system(size: 21, weight: .regular))
+                        .foregroundStyle(theme.muted).frame(width: 44, height: 44)
+                }.accessibilityLabel("More info about \(video.title)")
+            }.buttonStyle(CinespicePressStyle())
         }.foregroundStyle(theme.text)
             .contextMenu { videoActions }
             .accessibilityAction(named: Text("More info"), info)
@@ -213,17 +263,44 @@ struct VideoDetailsView: View {
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VideoArtwork(video: video).aspectRatio(16 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 10))
-                    Text(video.fileName ?? video.title).font(.title2.weight(.bold)).textSelection(.enabled)
-                    HStack { Text(video.formatLabel); Text("·"); Text(ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file)) }.font(.subheadline).foregroundStyle(theme.muted)
-                    if video.date > 0 { Text(Date(timeIntervalSince1970: Double(video.date)), style: .date).font(.caption).foregroundStyle(theme.muted) }
-                    if let caption = video.caption { Text(caption).font(.body).textSelection(.enabled) }
-                    Text("File details and artwork are cached on this iPhone. Tap Cinespice to refresh the current channel.").font(.caption).foregroundStyle(theme.muted)
-                }.padding(22)
-            }.background(theme.background).navigationTitle("File details").navigationBarTitleDisplayMode(.inline)
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(alignment: .bottom, spacing: 20) {
+                        VideoArtwork(video: video).aspectRatio(0.73, contentMode: .fit)
+                            .frame(maxWidth: 145).clipShape(RoundedRectangle(cornerRadius: 16))
+                            .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(video.title).font(.title2.weight(.bold)).textSelection(.enabled)
+                            Text(video.formatLabel).font(.caption.weight(.semibold)).foregroundStyle(theme.muted)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    VStack(alignment: .leading, spacing: 16) {
+                        Label("File information", systemImage: "info.circle").font(.headline)
+                        Text(video.fileName ?? video.title).font(.subheadline).textSelection(.enabled)
+                        Divider()
+                        HStack {
+                            Text("Size").foregroundStyle(theme.muted)
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file))
+                        }.font(.subheadline)
+                        if video.date > 0 {
+                            HStack {
+                                Text("Added").foregroundStyle(theme.muted)
+                                Spacer()
+                                Text(Date(timeIntervalSince1970: Double(video.date)), style: .date)
+                            }.font(.subheadline)
+                        }
+                    }.padding(20).background(theme.surface, in: RoundedRectangle(cornerRadius: 22))
+                    if let caption = video.caption {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("About this video").font(.headline)
+                            Text(caption).font(.body).foregroundStyle(theme.muted).textSelection(.enabled)
+                        }
+                    }
+                }.padding(24).frame(maxWidth: 700).frame(maxWidth: .infinity)
+            }.background(theme.background).navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } } }
         }.navigationViewStyle(.stack).preferredColorScheme(theme.scheme)
+            .foregroundStyle(theme.text).tint(theme.accent).presentationDragIndicator(.visible)
     }
 }
 
