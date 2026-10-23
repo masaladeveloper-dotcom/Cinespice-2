@@ -3,7 +3,7 @@
 ## Implemented fixes
 
 - Custom buttons have at least a 44 × 44 point target, a rectangular hit shape and
-  an immediate pressed highlight. They do not shrink or move when pressed.
+  immediate feedback. Press animations affect the label inside a fixed hit target.
   Disabled controls are visibly dimmed. Native list rows, menus, alerts, pickers
   and navigation bars retain system handling.
 - Header/back/search/clear/overflow controls use explicit targets. The Cancel and
@@ -84,3 +84,12 @@ taps. Record the installed commit and any failing control, orientation and scree
   track imports, subtitle sizes, scrolling and selected states. No tap-through seek.
 - Check seven hero pages, foreground after a UTC day change, last-search result,
   deselected source removal, and truthful catalogue placeholders.
+
+## Responsive brand refinement
+
+Check the four named themes on Home, Search, Library, Downloads, Channels, Account,
+Details and player options. Existing palette names map to the closest new palette.
+Login and connection loading show the name alone. The icon/header retain the red C.
+Verify that hero text expands its page height, grid columns follow safe content
+width, and small/landscape screens and accessibility text can scroll without
+clipping the player options, phone fields or file details.

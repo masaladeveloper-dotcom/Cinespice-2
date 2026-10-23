@@ -1,66 +1,94 @@
-# Cinespice: Cinema design system
+# Cinespice design system
 
-## Direction
+## Direction and identity
 
-An artwork-led personal cinema, with familiar iOS controls and a quiet visual
-hierarchy. Preserve the existing Telegram library and playback behavior. This is
-an Apple-inspired implementation, not an Apple product or a claim of visual parity.
+Spacious, artwork-led screens using native system typography and the supplied
+red glass C identity. The app icon and `BrandMark` image are extracted from the
+large light icon in the user's Design.jpeg board (620 × 620 crop, coordinates
+72,52–692,672). The 1024 px icon is resized from that raster reference, not vector
+artwork. Keep the original red artwork in every palette; do not recolor it.
+Login and connection-loading screens show only the CINESPICE wordmark.
 
-## References inspected
+## Four palettes
 
-- [Apple: Color](https://developer.apple.com/design/human-interface-guidelines/color):
-  semantic foreground colors, consistent action colors, light/dark accessibility.
-- [Apple: Typography](https://developer.apple.com/design/human-interface-guidelines/typography):
-  readable system text styles, Dynamic Type and restrained font weights.
-- [Apple: Materials](https://developer.apple.com/design/human-interface-guidelines/materials):
-  reserve Liquid Glass for navigation and controls; use solid content surfaces.
-- [Apple: Motion](https://developer.apple.com/design/human-interface-guidelines/motion):
-  purposeful feedback, continuity and respect for Reduce Motion.
-- [Apple: Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars):
-  few clearly labeled destinations, consistent symbols and visible navigation.
-- [Apple: Custom Liquid Glass](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views):
-  the existing availability-guarded native glass dock and its older-system fallback.
+| Palette | Background | Surface | Text | Secondary text | Accent | Action fill |
+| --- | --- | --- | --- | --- | --- | --- |
+| Cinespice Glass | `#F8F6F4` | `#FFFFFF` | `#171518` | `#68616A` | `#CC182A` | `#CC182A` |
+| Cinespice Dark (default) | `#0B0B0F` | `#1C1C22` | `#F8F6F4` | `#B5AFB9` | `#FF6975` | `#B6111B` |
+| Crimson Cinema | `#1B0D14` | `#311D27` | `#FBF3EC` | `#C5ADB6` | `#F3929E` | `#A32C44` |
+| Silver Screen | `#14171C` | `#272C34` | `#F5F7FA` | `#B4BDC9` | `#D6DDE7` | `#D6DDE7` |
 
-## Visual rules
+Action labels are white except on Silver Screen, where they use deep graphite.
+Accents adjust the supplied red family for contrast. Shared tokens cover fields,
+cards, lists, dialogs, navigation, metadata and actions. Playback remains black
+with white controls and dark option surfaces; Glass uses its Dark companion there.
 
-| Element | Treatment |
-| --- | --- |
-| Default palette | Cinema: background `#08090B`, surface `#1C1C1E`, accent `#F5F5F7` |
-| Foregrounds | UIKit semantic label, secondary label and separator colors |
-| Existing preferences | Ember, Midnight, Pearl and Sage remain available; saved choices remain valid |
-| Text | System large title, headline, body, subheadline and caption styles |
-| Spacing | 20–24 pt screen gutters, 16 pt card gaps, 32 pt Home section gaps |
-| Content shapes | 14 pt poster corners; 18–24 pt grouped surfaces; 30 pt login mark |
-| Primary video action | 34 pt round Play graphic inside a 44 pt minimum touch target |
-| Glass | Floating four-destination dock; content cards remain solid |
-| Motion | Short damped press feedback and dock selection; no autoplaying carousel |
-| Accessibility | Reduce Motion, Reduce Transparency, semantic foregrounds, scalable poster widths and larger hero at accessibility text sizes |
+This intentionally replaces the previous five palettes. Saved `cinema` resolves
+to Dark, `ember` to Crimson, `midnight` to Silver, and `pearl`/`sage` to Glass.
+The preference key remains `cinespice.theme`; the picker offers exactly four
+choices. Theme changes affect color only. Dark remains the default.
 
-## Screen composition
+## Responsive sizing before effects
 
-- **Home:** recently added/daily/search hero positions, existing reserved catalogue
-  positions, Continue Watching, then one horizontal portrait row per channel.
-  Rows keep the 15-title cap and collection arrow; launch variation stays intact.
-- **Library:** New Releases first, with Favorites, Watchlist and History. Release
-  order remains based on filename-year hints until catalogue metadata is connected.
-- **Search:** one solid, readable search field, concise guidance and poster results.
-- **Downloads:** compact rows with portrait artwork, file size, real download state,
-  round Play and Info controls. Shared context menus retain all file actions.
-- **Details:** poster/title introduction, grouped file information and caption.
-- **Login:** consistent cinema mark, large title, 56 pt input surfaces and full-width
-  Continue control. Existing phone, code, password, email, resend and restart flows.
-- **Channels and account:** grouped surfaces, concise explanations, readable rows,
-  familiar native pickers and destructive-action confirmations.
-- **Player:** black video surface, neutral white controls, circular transport and
-  compact charcoal option panels. All track, timing, orientation and close actions
-  retain their handlers. Press feedback still informs the control-hide timer.
+- Measure the current safe viewport, cap library content at 1200 pt, and derive
+  grid columns from that content width rather than the full device screen.
+- Shared screen gutters: 16 pt below 360 pt, 24 pt below 700 pt, then 32 pt.
+  Poster gaps are 16 pt; sections have 28–32 pt separation.
+- Grid columns use a Dynamic Type-scaled 136 pt minimum, from one to six columns.
+  Portrait posters retain their 0.73 width/height ratio. Home rails remain
+  horizontal, with up to 15 titles and an arrow to open each channel.
+- Hero artwork height follows available width/orientation, within 200–440 pt.
+  Titles, metadata and actions sit below it. Page height measures content, so
+  larger text expands the scrollable screen. No automatic carousel motion.
+- Use system text styles. At accessibility sizes, phone fields, download rows,
+  details and metadata rows stack; source filtering uses a native menu. The dock
+  retains all four accessible destinations and uses icons at these sizes.
+- Touch targets remain at least 44 pt. Video Play graphics are small circles;
+  Info and the existing long-press menus retain their separate actions.
+- Login, source sheets, details and the library can scroll. Do not squeeze
+  content vertically to fit a screenshot.
 
-## Implementation boundaries
+## Player
 
-The existing four-tab and seven-slot hero contracts remain. Player chrome changes
-from orange to neutral white; the option panel replaces its orange border with a
-subtle neutral separator. A new default palette is introduced without rewriting
-saved preferences. No networking, matching, storage or playback-engine changes.
+Controls stay inside the safe viewport, including when video alone extends to
+screen edges. Keep the timeline wide, with a centered transport group and evenly
+spaced tools. Landscape uses one control row when there is sufficient width;
+short viewports and accessibility text can scroll the chrome. Larger text can
+scroll the tools horizontally. The original video gestures remain available.
 
-Swift syntax parsing does not establish SDK compilation or native appearance.
-The required native build remains the existing GitHub Actions iOS workflow.
+Option panels fit the safe viewport, capped at 460 pt wide in portrait and 400 pt
+in landscape. Their maximum height includes the header and padding. Long track
+lists scroll; accessibility text uses one column of speed/more options. Audio
+and subtitle delay controls retain decrease, increase and Reset actions.
+
+Do not add unsupported VLC features or change the playback engine, track and
+subtitle behavior, orientation handlers, download actions, or auto-hide timing.
+Press feedback must continue to update the existing control-hide interaction state.
+
+## Materials and motion
+
+Glass is reserved for the floating Home / Search / Library / Downloads dock.
+The iOS 26 native glass API remains guarded by compiler and runtime availability;
+iOS 16+ uses the material fallback. Reduce Transparency uses a solid surface.
+Damped press/dock feedback and option-panel transitions respect Reduce Motion.
+Posters and content use solid surfaces and restrained corners, without extra glass.
+
+## Preserved contracts and verification
+
+Keep all four tabs, seven hero positions, selected Telegram sources, per-launch
+Home rail variation, Continue Watching order, saved lists, filename-year release
+ordering, authentication stages and existing player actions. This is a UI
+refinement within the current SwiftUI architecture.
+
+Syntax parsing and asset checks do not establish SDK compilation, native
+appearance or touch behavior. The required native build remains the existing
+GitHub Actions iOS workflow. API ID/hash checks and app metadata checks remain.
+
+## Apple references
+
+- [Color](https://developer.apple.com/design/human-interface-guidelines/color)
+- [Typography](https://developer.apple.com/design/human-interface-guidelines/typography)
+- [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
+- [Motion](https://developer.apple.com/design/human-interface-guidelines/motion)
+- [Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars)
+- [Custom Liquid Glass](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views)

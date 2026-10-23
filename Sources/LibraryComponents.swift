@@ -1,29 +1,76 @@
 import SwiftUI
 import UIKit
 
-/// Semantic palettes shared by every library surface. Player stays cinema black.
+/// All surfaces use one palette. Legacy saved names resolve without losing a preference.
 enum CinespiceTheme: String, CaseIterable, Identifiable {
-    case cinema, ember, midnight, pearl, sage
-    var id: String { rawValue }
-    var title: String {
-        switch self { case .cinema: return "Cinema · Dark"; case .ember: return "Ember · Dark"; case .midnight: return "Midnight · Dark"; case .pearl: return "Pearl · Light"; case .sage: return "Sage · Light" }
-    }
-    var scheme: ColorScheme {
-        switch self {
-        case .cinema, .ember, .midnight: return .dark
-        case .pearl, .sage: return .light
+    case glass, dark, crimson, silver
+    init?(rawValue: String) {
+        switch rawValue {
+        case "glass", "pearl", "sage": self = .glass
+        case "dark", "cinema": self = .dark
+        case "crimson", "ember": self = .crimson
+        case "silver", "midnight": self = .silver
+        default: return nil
         }
     }
-    var background: Color { color([0x08090B, 0x0B0B0D, 0x0D1424, 0xF8F4EF, 0xF1F6F2]) }
-    var surface: Color { color([0x1C1C1E, 0x1B1B20, 0x1C2940, 0xE9E2DA, 0xDFEAE2]) }
-    var accent: Color { color([0xF5F5F7, 0xFF774A, 0x91ADFF, 0xA63D25, 0x226347]) }
-    var text: Color { Color(uiColor: .label) }
-    var muted: Color { Color(uiColor: .secondaryLabel) }
-    var separator: Color { Color(uiColor: .separator) }
-    private func color(_ values: [Int]) -> Color {
-        let value = values[Self.allCases.firstIndex(of: self)!]
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .glass: return "Cinespice Glass"
+        case .dark: return "Cinespice Dark"
+        case .crimson: return "Crimson Cinema"
+        case .silver: return "Silver Screen"
+        }
+    }
+    var scheme: ColorScheme { self == .glass ? .light : .dark }
+    private var palette: (background: Int, surface: Int, text: Int, muted: Int, accent: Int, action: Int) {
+        switch self {
+        case .glass: return (0xF8F6F4, 0xFFFFFF, 0x171518, 0x68616A, 0xCC182A, 0xCC182A)
+        case .dark: return (0x0B0B0F, 0x1C1C22, 0xF8F6F4, 0xB5AFB9, 0xFF6975, 0xB6111B)
+        case .crimson: return (0x1B0D14, 0x311D27, 0xFBF3EC, 0xC5ADB6, 0xF3929E, 0xA32C44)
+        case .silver: return (0x14171C, 0x272C34, 0xF5F7FA, 0xB4BDC9, 0xD6DDE7, 0xD6DDE7)
+        }
+    }
+    var background: Color { color(palette.background) }
+    var surface: Color { color(palette.surface) }
+    var text: Color { color(palette.text) }
+    var muted: Color { color(palette.muted) }
+    var accent: Color { color(palette.accent) }
+    var action: Color { color(palette.action) }
+    var onAction: Color { self == .silver ? color(0x14171C) : .white }
+    var separator: Color { muted.opacity(0.25) }
+    private func color(_ value: Int) -> Color {
         return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
     }
+}
+
+/// Dimensions derive from the safe content width, including on iPad and rotation.
+struct CinespiceLayout {
+    static let maximumWidth: CGFloat = 1200
+    static let posterRatio: CGFloat = 0.73
+    static let gap: CGFloat = 16
+    let width: CGFloat
+    var gutter: CGFloat { width < 360 ? 16 : (width < 700 ? 24 : 32) }
+    var innerWidth: CGFloat { max(1, min(width, Self.maximumWidth) - gutter * 2) }
+    func columns(minimum: CGFloat) -> [GridItem] {
+        let count = max(1, min(6, Int((innerWidth + Self.gap) / (max(1, minimum) + Self.gap))))
+        return Array(repeating: GridItem(.flexible(), spacing: Self.gap, alignment: .top), count: count)
+    }
+}
+
+struct CinespiceWordmark: View {
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
+    var body: some View {
+        (Text("CINE").foregroundColor(theme.text) + Text("SPICE").foregroundColor(theme.accent))
+            .font(.headline.weight(.bold)).tracking(2).lineLimit(1).minimumScaleFactor(0.7)
+            .accessibilityLabel("Cinespice")
+    }
+}
+
+/// The paged hero reserves its measured text height rather than clipping larger type.
+struct HeroHeightPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Keep the visual label and its hit area together. Opacity/background feedback
@@ -61,7 +108,7 @@ struct CinespicePressStyle: ButtonStyle {
 
 /// Use native Liquid Glass with the iOS 26 SDK, keeping iOS 16 and older SDK builds supported.
 struct CinespiceDockMaterial: ViewModifier {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @ViewBuilder func body(content: Content) -> some View {
@@ -89,16 +136,16 @@ struct CinespiceDockMaterial: ViewModifier {
 }
 
 struct CinespiceFieldStyle: TextFieldStyle {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration.font(.body).padding(.horizontal, 16).frame(minHeight: 56)
+        configuration.font(.body).padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: 56)
             .background(theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.separator.opacity(0.4), lineWidth: 0.5))
     }
 }
 
 struct VideoArtwork: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var library: LibraryStore
     let video: TelegramVideo
@@ -146,9 +193,10 @@ struct VideoArtwork: View {
 }
 
 struct VideoCard: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var library: LibraryStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let video: TelegramVideo
     var wide = false
     var compact = false
@@ -163,8 +211,9 @@ struct VideoCard: View {
     var body: some View {
         Group {
             if compact {
-                HStack(alignment: .top, spacing: 16) {
-                    artwork.frame(width: 82)
+                let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+                layout {
+                    artwork.frame(width: dynamicTypeSize.isAccessibilitySize ? 120 : 82)
                     VStack(alignment: .leading, spacing: 8) { metadata; controls }
                 }.padding(16).background(theme.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             } else {
@@ -193,7 +242,7 @@ struct VideoCard: View {
                 }.padding(12).foregroundStyle(.white)
                 if opening { ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity) }
             }
-            .aspectRatio(wide ? 16 / 9 : 0.73, contentMode: .fit)
+            .aspectRatio(wide ? 16 / 9 : CinespiceLayout.posterRatio, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.text.opacity(0.08), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
@@ -232,7 +281,7 @@ struct VideoCard: View {
             Button { play(true) } label: {
                 Image(systemName: "play.fill").font(.system(size: 13, weight: .semibold))
                     .offset(x: 1).frame(width: 34, height: 34)
-                    .background(theme.text, in: Circle()).foregroundStyle(theme.background)
+                    .background(theme.action, in: Circle()).foregroundStyle(theme.onAction)
                     .frame(width: 44, height: 44)
             }.disabled(opening).accessibilityLabel("Play \(video.title)")
             Spacer(minLength: 0)
@@ -280,30 +329,32 @@ struct VideoCard: View {
 }
 
 struct LibraryEmptyState: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     let symbol: String
     let title: String
     let detail: String
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: symbol).font(.system(size: 32, weight: .regular)).foregroundStyle(theme.muted)
-                .frame(width: 76, height: 76).background(theme.surface, in: RoundedRectangle(cornerRadius: 24))
-            Text(title).font(.title3.weight(.semibold))
+            Image(systemName: symbol).font(.largeTitle.weight(.regular)).foregroundStyle(theme.muted)
+                .frame(minWidth: 44, minHeight: 44)
+            Text(title).font(.title3.weight(.semibold)).multilineTextAlignment(.center)
             Text(detail).font(.subheadline).foregroundStyle(theme.muted).multilineTextAlignment(.center).lineSpacing(4)
-        }.frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.vertical, 60)
+        }.frame(maxWidth: 440).padding(.horizontal, 24).padding(.vertical, 40).frame(maxWidth: .infinity)
     }
 }
 
 struct VideoDetailsView: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let video: TelegramVideo
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    HStack(alignment: .bottom, spacing: 20) {
-                        VideoArtwork(video: video).aspectRatio(0.73, contentMode: .fit)
+                    let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 20)) : AnyLayout(HStackLayout(alignment: .bottom, spacing: 20))
+                    layout {
+                        VideoArtwork(video: video).aspectRatio(CinespiceLayout.posterRatio, contentMode: .fit)
                             .frame(maxWidth: 145).clipShape(RoundedRectangle(cornerRadius: 16))
                             .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
                         VStack(alignment: .leading, spacing: 10) {
@@ -315,17 +366,9 @@ struct VideoDetailsView: View {
                         Label("File information", systemImage: "info.circle").font(.headline)
                         Text(video.fileName ?? video.title).font(.subheadline).textSelection(.enabled)
                         Divider()
-                        HStack {
-                            Text("Size").foregroundStyle(theme.muted)
-                            Spacer()
-                            Text(ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file))
-                        }.font(.subheadline)
+                        detailRow("Size", value: ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file))
                         if video.date > 0 {
-                            HStack {
-                                Text("Added").foregroundStyle(theme.muted)
-                                Spacer()
-                                Text(Date(timeIntervalSince1970: Double(video.date)), style: .date)
-                            }.font(.subheadline)
+                            detailRow("Added", value: Date(timeIntervalSince1970: Double(video.date)).formatted(date: .abbreviated, time: .omitted))
                         }
                     }.padding(20).background(theme.surface, in: RoundedRectangle(cornerRadius: 22))
                     if let caption = video.caption {
@@ -339,6 +382,14 @@ struct VideoDetailsView: View {
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } } }
         }.navigationViewStyle(.stack).preferredColorScheme(theme.scheme)
             .foregroundStyle(theme.text).tint(theme.accent).presentationDragIndicator(.visible)
+    }
+    private func detailRow(_ title: String, value: String) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
+            Text(title).foregroundStyle(theme.muted)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            Text(value)
+        }.font(.subheadline)
     }
 }
 
@@ -362,7 +413,7 @@ struct LibraryPageTrigger: View {
 /// Acknowledges every play tap before Telegram or disk work finishes. Blocks
 /// duplicate taps but keeps cancellation available, including with VoiceOver.
 struct MediaOpeningOverlay: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .cinema
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     let title: String
     let cancel: () -> Void
     var body: some View {
@@ -376,7 +427,7 @@ struct MediaOpeningOverlay: View {
                 Button(action: cancel) {
                     Text("Cancel").font(.subheadline.weight(.semibold))
                         .frame(minWidth: 100, minHeight: 44)
-                        .background(.white.opacity(0.1), in: Capsule())
+                        .background(theme.text.opacity(0.08), in: Capsule())
                 }.buttonStyle(CinespiceButtonStyle())
             }.padding(28).frame(maxWidth: 330)
                 .background(theme.surface, in: RoundedRectangle(cornerRadius: 28))

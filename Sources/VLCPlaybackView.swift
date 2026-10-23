@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct VLCPlaybackView: View {
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var rangeServer: TelegramRangeServer
     @Environment(\.scenePhase) private var phase
@@ -24,7 +27,7 @@ struct VLCPlaybackView: View {
     @State private var message = ""
     @State private var suspended = false
     private let onClose: () -> Void
-    private let spice = Color.white
+    private var spice: Color { theme == .glass ? CinespiceTheme.dark.accent : theme.accent }
 
     init(selection: PlaybackSelection, library: LibraryStore, onClose: @escaping () -> Void) {
         self.onClose = onClose
@@ -51,32 +54,18 @@ struct VLCPlaybackView: View {
                         .allowsHitTesting(false)
                 }
                 if controlsVisible && !locked {
-                    LinearGradient(colors: [.black.opacity(0.8), .clear, .black.opacity(0.85)], startPoint: .top, endPoint: .bottom).allowsHitTesting(false)
-                    VStack(spacing: 8) {
-                        topBar
-                        videoGestures.frame(maxHeight: .infinity)
-                        if !playback.error.isEmpty { notice(playback.error) }
-                        if !message.isEmpty { notice(message) }
-                        if !playback.resumeWarning.isEmpty {
-                            notice(playback.resumeWarning)
-                            Button("Start from beginning") { playback.startOver() }.font(.caption.bold())
-                        }
-                        timeline
-                        if geometry.size.width > 600 {
-                            HStack(spacing: 16) {
-                                trackTool
-                                rotateTool
-                                Spacer(minLength: 0)
-                                transport
-                                Spacer(minLength: 0)
-                                pictureTool
-                                moreTool
-                            }
-                        } else {
-                            transport.frame(maxWidth: .infinity)
-                            tools
-                        }
-                    }.padding(.horizontal, geometry.size.width > 700 ? 32 : 14).padding(.vertical, 12)
+                    LinearGradient(stops: [
+                        .init(color: .black.opacity(0.7), location: 0),
+                        .init(color: .clear, location: 0.3),
+                        .init(color: .clear, location: 0.55),
+                        .init(color: .black.opacity(0.85), location: 1)
+                    ], startPoint: .top, endPoint: .bottom).allowsHitTesting(false)
+                    if dynamicTypeSize.isAccessibilitySize || geometry.size.height < 300 {
+                        ScrollView { playerChrome(geometry.size, scrolling: true) }
+                            .accessibilityHidden(panel != nil)
+                    } else {
+                        playerChrome(geometry.size, scrolling: false).accessibilityHidden(panel != nil)
+                    }
                 }
                 if !actionFeedback.isEmpty {
                     Text(actionFeedback).font(.subheadline.weight(.semibold)).padding(12)
@@ -91,11 +80,13 @@ struct VLCPlaybackView: View {
                     Color.clear.contentShape(Rectangle()).onTapGesture { self.panel = nil }
                     VStack {
                         Spacer(minLength: 0)
-                        options(panel, maxHeight: max(88, geometry.size.height * (geometry.size.width > geometry.size.height ? 0.6 : 0.32)))
-                    }.frame(maxWidth: geometry.size.width > geometry.size.height ? 340 : 420)
-                        .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: geometry.size.width > geometry.size.height ? .bottomTrailing : .bottom)
+                        options(panel, maxHeight: min(600, max(1, geometry.size.height - 32)) * (geometry.size.width > geometry.size.height ? 1 : 0.85))
+                    }.frame(maxWidth: geometry.size.width > geometry.size.height ? 400 : 460)
+                        .padding(16).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: geometry.size.width > geometry.size.height ? .bottomTrailing : .bottom)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: panel)
         }
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(.white)
@@ -142,6 +133,38 @@ struct VLCPlaybackView: View {
         .onChange(of: playback.error) { error in if !error.isEmpty { controlsVisible = true; locked = false } }
         .onChange(of: playback.resumeWarning) { warning in if !warning.isEmpty { controlsVisible = true; locked = false } }
     }
+    private func playerChrome(_ size: CGSize, scrolling: Bool) -> some View {
+        VStack(spacing: 16) {
+            topBar
+            videoGestures.frame(minHeight: scrolling ? 44 : 16, maxHeight: scrolling ? 44 : .infinity)
+            VStack(spacing: 12) {
+                if !playback.error.isEmpty { notice(playback.error) }
+                if !message.isEmpty { notice(message) }
+                if !playback.resumeWarning.isEmpty {
+                    notice(playback.resumeWarning)
+                    Button("Start from beginning") { playback.startOver() }.font(.subheadline.bold())
+                }
+                timeline
+                if size.width >= 640 && size.width > size.height && !dynamicTypeSize.isAccessibilitySize {
+                    HStack(spacing: 12) {
+                        HStack(spacing: 8) {
+                            speedTool.frame(width: 48)
+                            trackTool.frame(width: 48)
+                            rotateTool.frame(width: 48)
+                        }
+                        Spacer(minLength: 0)
+                        HStack(spacing: 8) {
+                            pictureTool.frame(width: 48)
+                            moreTool.frame(width: 48)
+                        }
+                    }.overlay { transport }
+                } else {
+                    transport.frame(maxWidth: .infinity)
+                    tools
+                }
+            }.frame(maxWidth: 1000).frame(maxWidth: .infinity)
+        }.padding(.horizontal, size.width >= 700 ? 32 : 20).padding(.vertical, 12)
+    }
     private func updateAspect(_ geometry: GeometryProxy) {
         let insets = geometry.safeAreaInsets
         playback.configureAspect(width: Double(geometry.size.width + (playback.edgeToEdge ? insets.leading + insets.trailing : 0)), height: Double(geometry.size.height + (playback.edgeToEdge ? insets.top + insets.bottom : 0)))
@@ -165,7 +188,7 @@ struct VLCPlaybackView: View {
     private func feedback(_ text: String) {
         actionFeedback = text; feedbackToken = UUID(); interaction = UUID()
     }
-    private func notice(_ text: String) -> some View { Text(text).font(.caption).foregroundStyle(spice).lineLimit(3) }
+    private func notice(_ text: String) -> some View { Text(text).font(.caption).foregroundStyle(.white).fixedSize(horizontal: false, vertical: true) }
     private var topBar: some View {
         HStack(spacing: 12) {
             Button(action: closePlayer) { Image(systemName: "chevron.down").font(.system(size: 20, weight: .semibold)).frame(width: 48, height: 48).contentShape(Rectangle()) }
@@ -197,21 +220,34 @@ struct VLCPlaybackView: View {
                 .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
         }
     }
-    private var tools: some View {
-        HStack(spacing: 0) {
-            tool(String(format: "%g×", Double(playback.rate)), "speedometer") { panel = "Speed" }
-            trackTool
-            pictureTool
-            rotateTool
-            moreTool
-        }.padding(.top, 8)
+    @ViewBuilder private var tools: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 16) { toolButtons }.padding(.horizontal, 4)
+            }.padding(.top, 4)
+        } else {
+            HStack(alignment: .top, spacing: 0) { toolButtons }.padding(.top, 4)
+        }
     }
+    @ViewBuilder private var toolButtons: some View {
+        speedTool.frame(maxWidth: .infinity)
+        trackTool.frame(maxWidth: .infinity)
+        pictureTool.frame(maxWidth: .infinity)
+        rotateTool.frame(maxWidth: .infinity)
+        moreTool.frame(maxWidth: .infinity)
+    }
+    private var speedTool: some View { tool(String(format: "%g×", Double(playback.rate)), "speedometer") { panel = "Speed" }.accessibilityLabel("Playback speed").accessibilityValue(String(format: "%g times", Double(playback.rate))) }
     private func tool(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { VStack(spacing: 5) { Image(systemName: symbol).font(.system(size: 19)); Text(title).font(.system(size: 10, weight: .medium)).lineLimit(1) }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle()) }
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: symbol).font(.system(size: 20))
+                Text(title).font(.caption2.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+            }.frame(minWidth: dynamicTypeSize.isAccessibilitySize ? 88 : 44, minHeight: 52).contentShape(Rectangle())
+        }.accessibilityLabel(title)
     }
     private var trackTool: some View { tool("Tracks", "captions.bubble") { panel = "Tracks" } }
     private var rotateTool: some View { tool("Rotate", "rotate.right") { orientation.setLandscape(!orientation.landscape) { message = $0 }; feedback(orientation.landscape ? "Landscape locked" : "Portrait locked") } }
-    private var pictureTool: some View { tool(playback.aspect, "aspectratio") { panel = "Picture" } }
+    private var pictureTool: some View { tool("Picture", "aspectratio") { panel = "Picture" }.accessibilityValue(playback.aspect) }
     private var moreTool: some View { tool("More", "ellipsis") { panel = "More" } }
 
     private func closePlayer() {
@@ -222,13 +258,14 @@ struct VLCPlaybackView: View {
         onClose()
         playback.stop()
     }
+    private var panelSurface: Color { theme == .glass ? CinespiceTheme.dark.surface : theme.surface }
     private func options(_ title: String, maxHeight: CGFloat) -> some View {
         VStack(spacing: 4) {
             HStack { Text(title).font(.headline); Spacer(); Button { panel = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("Close options") }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if title == "Speed" {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 10) {
+                        LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 80))], spacing: 10) {
                             ForEach([Float(0.25), 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3, 4], id: \.self) { rate in
                                 option(String(format: "%g×", Double(rate)), selected: rate == playback.rate) { playback.setRate(rate) }
                             }
@@ -242,7 +279,7 @@ struct VLCPlaybackView: View {
                     } else if title == "Subtitle size" {
                         subtitleSizeOptions
                     } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 10) {
+                        LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 110))], spacing: 10) {
                             option("Speed") { panel = "Speed" }
                             option("Audio & subtitles") { panel = "Tracks" }
                             option("Subtitle size") { panel = "Subtitle size" }
@@ -254,14 +291,15 @@ struct VLCPlaybackView: View {
                         Text("Created by Masalaots · @notmasalaoats").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-            }.frame(maxHeight: min(440, maxHeight))
-        }.padding(16).background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            }
+        }.padding(16).frame(maxHeight: maxHeight).background(panelSurface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.1), lineWidth: 0.5).allowsHitTesting(false))
             .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
     }
     private var trackOptions: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+            let tabs = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+            tabs {
                 ForEach(["Audio", "Subtitles"], id: \.self) { name in
                     option(name, selected: trackTab == name) { trackTab = name }
                 }
@@ -295,7 +333,15 @@ struct VLCPlaybackView: View {
         Button(action: action) { HStack { Text(title); Spacer(); if selected { Image(systemName: "checkmark").foregroundStyle(spice) } }.font(.subheadline).padding(12).frame(minHeight: 44).background(selected ? spice.opacity(0.18) : Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10)) }
     }
     private func delay(_ title: String, value: Double, adjust: @escaping (Double) -> Void) -> some View {
-        HStack { Text(String(format: "%@ delay %+.2f s", title, value)).font(.caption); Spacer(); Button { adjust(-0.25) } label: { Text("−").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Decrease " + title.lowercased() + " delay"); Button { adjust(0.25) } label: { Text("+").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Increase " + title.lowercased() + " delay"); Button { adjust(-value) } label: { Text("Reset").font(.caption).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) } }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(format: "%@ delay %+.2f s", title, value)).font(.caption)
+            HStack(spacing: 16) {
+                Button { adjust(-0.25) } label: { Image(systemName: "minus").frame(width: 44, height: 44) }.accessibilityLabel("Decrease " + title.lowercased() + " delay")
+                Button { adjust(0.25) } label: { Image(systemName: "plus").frame(width: 44, height: 44) }.accessibilityLabel("Increase " + title.lowercased() + " delay")
+                Spacer(minLength: 0)
+                Button { adjust(-value) } label: { Text("Reset").font(.caption).frame(minWidth: 44, minHeight: 44) }
+            }
+        }
     }
     private func time(_ value: Double) -> String {
         let seconds = max(0, Int(value.isFinite ? value : 0))
