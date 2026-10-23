@@ -550,7 +550,7 @@ struct TelegramLibraryView: View {
         }.buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
             .tint(theme.action).disabled(telegram.isAuthenticating)
     }
-    private func authForm<Content: View>(_ title: String, subtitle: String, @ViewBuilder content: () -> Content) -> some View {
+    private func authForm<Content: View>(_ title: String, subtitle: String, @ViewBuilder content: @escaping () -> Content) -> some View {
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
