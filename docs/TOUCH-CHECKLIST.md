@@ -70,7 +70,7 @@ taps. Record the installed commit and any failing control, orientation and scree
   five entries. Repeat with Favorites/Watchlist and every tab; return from player
   without losing the underlying scroll position.
 - Search is empty before typing. Clear the query: no cached results remain.
-  Tap outside the keyboard, then tap a button: keyboard closes and action fires once.
+  Use keyboard Done or scroll dismissal; Continue dismisses it and fires once.
 - Favorite and watchlist a remote search result; restart and confirm both. Deselect
   and reselect its channel; items return. Switch accounts: lists remain isolated.
 - Upgrade a schema2 library with history/cursors; verify all still available.
@@ -90,6 +90,20 @@ taps. Record the installed commit and any failing control, orientation and scree
 Check the four named themes on Home, Search, Library, Downloads, Channels, Account,
 Details and player options. Existing palette names map to the closest new palette.
 Login and connection loading show the name alone. The icon/header retain the red C.
-Verify that hero text expands its page height, grid columns follow safe content
+Verify equal empty/populated hero heights, horizontal swipes, grid columns following safe content
 width, and small/landscape screens and accessibility text can scroll without
 clipping the player options, phone fields or file details.
+
+## Collected fixes: device acceptance still required
+
+- Fresh/repeated sign-in never reports Unexpected setTdlibParameters; genuine
+  setup errors retain Retry. Enter an invalid number/code; verify the error stays
+  reachable above the keyboard. Back must restart the server challenge.
+- Native tabs switch once per tap and respect safe areas on iOS 16 and iOS 26.
+- Supplied StreamersHub filenames are clean on every browsing/playback surface;
+  About and exported files retain the original name. Full thumbnail is visible.
+- Swipe between every hero page before/after data arrives: no height changes or
+  stolen horizontal gestures. Portrait channel cards remain horizontal rails.
+- Play/Info targets remain reachable; long press still exposes all prior actions.
+- Player row does not overlap or wrap in either orientation. Verify horizontal
+  access at accessibility sizes, all tools, real playing animation and Reduce Motion.

@@ -38,12 +38,13 @@ choices. Theme changes affect color only. Dark remains the default.
   Portrait posters retain their 0.73 width/height ratio. Home rails remain
   horizontal, with up to 15 titles and an arrow to open each channel.
 - Hero artwork height follows available width/orientation, within 200–440 pt.
-  Titles, metadata and actions sit below it. Page height measures content, so
-  larger text expands the scrollable screen. No automatic carousel motion.
+  Titles, metadata and actions sit below it in a shared, Dynamic Type-scaled
+  region. Empty and populated pages have equal height; long metadata scrolls
+  within that region. No automatic carousel motion.
 - Use system text styles. At accessibility sizes, phone fields, download rows,
-  details and metadata rows stack; source filtering uses a native menu. The dock
-  retains all four accessible destinations and uses icons at these sizes.
-- Touch targets remain at least 44 pt. Video Play graphics are small circles;
+  details and metadata rows stack; source filtering uses a native menu. System
+  tab navigation retains all four accessible destinations.
+- Touch targets remain at least 44 pt. Video Play graphics are compact pills;
   Info and the existing long-press menus retain their separate actions.
 - Login, source sheets, details and the library can scroll. Do not squeeze
   content vertically to fit a screenshot.
@@ -52,9 +53,9 @@ choices. Theme changes affect color only. Dark remains the default.
 
 Controls stay inside the safe viewport, including when video alone extends to
 screen edges. Keep the timeline wide, with a centered transport group and evenly
-spaced tools. Landscape uses one control row when there is sufficient width;
-short viewports and accessibility text can scroll the chrome. Larger text can
-scroll the tools horizontally. The original video gestures remain available.
+spaced tools. A single icon row scrolls horizontally if the available width
+cannot accommodate every 44-point target. Short viewports and accessibility
+text can scroll the chrome. The original video gestures remain available.
 
 Option panels fit the safe viewport, capped at 460 pt wide in portrait and 400 pt
 in landscape. Their maximum height includes the header and padding. Long track
@@ -67,10 +68,10 @@ Press feedback must continue to update the existing control-hide interaction sta
 
 ## Materials and motion
 
-Glass is reserved for the floating Home / Search / Library / Downloads dock.
-The iOS 26 native glass API remains guarded by compiler and runtime availability;
-iOS 16+ uses the material fallback. Reduce Transparency uses a solid surface.
-Damped press/dock feedback and option-panel transitions respect Reduce Motion.
+Native TabView owns the Home / Search / Library / Downloads navigation and its system materials.
+The iOS version supplies its native tab appearance, materials and accessibility
+adaptations. No custom glass API is required for tabs. Press feedback, native tab
+motion and option-panel transitions respect Reduce Motion.
 Posters and content use solid surfaces and restrained corners, without extra glass.
 
 ## Preserved contracts and verification

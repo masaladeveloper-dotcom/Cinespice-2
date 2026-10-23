@@ -145,25 +145,10 @@ struct VLCPlaybackView: View {
                     Button("Start from beginning") { playback.startOver() }.font(.subheadline.bold())
                 }
                 timeline
-                if size.width >= 640 && size.width > size.height && !dynamicTypeSize.isAccessibilitySize {
-                    HStack(spacing: 12) {
-                        HStack(spacing: 8) {
-                            speedTool.frame(width: 48)
-                            trackTool.frame(width: 48)
-                            rotateTool.frame(width: 48)
-                        }
-                        Spacer(minLength: 0)
-                        HStack(spacing: 8) {
-                            pictureTool.frame(width: 48)
-                            moreTool.frame(width: 48)
-                        }
-                    }.overlay { transport }
-                } else {
-                    transport.frame(maxWidth: .infinity)
-                    tools
-                }
+                controlRow(availableWidth: min(1000, size.width - (size.width >= 700 ? 64 : 32)))
+
             }.frame(maxWidth: 1000).frame(maxWidth: .infinity)
-        }.padding(.horizontal, size.width >= 700 ? 32 : 20).padding(.vertical, 12)
+        }.padding(.horizontal, size.width >= 700 ? 32 : 16).padding(.vertical, 12)
     }
     private func updateAspect(_ geometry: GeometryProxy) {
         let insets = geometry.safeAreaInsets
@@ -193,21 +178,46 @@ struct VLCPlaybackView: View {
         HStack(spacing: 12) {
             Button(action: closePlayer) { Image(systemName: "chevron.down").font(.system(size: 20, weight: .semibold)).frame(width: 48, height: 48).contentShape(Rectangle()) }
                 .accessibilityLabel("Close player").accessibilityIdentifier("player.close").disabled(closing)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(playback.selection.video.fileName ?? playback.selection.video.title).font(.subheadline.weight(.semibold)).lineLimit(2)
-                Text("cinespice").font(.caption.weight(.medium)).foregroundStyle(.white.opacity(0.65))
-            }
+            Text(playback.selection.video.displayTitle).font(.subheadline.weight(.semibold)).lineLimit(2)
             Spacer(minLength: 0)
-            Button { locked = true } label: { Image(systemName: "lock.open").frame(width: 44, height: 44) }.accessibilityLabel("Lock controls")
+            rotateTool
+
         }
     }
-    private var transport: some View {
-        HStack(spacing: 28) {
-            Button { playback.seek(-10); feedback("−10 seconds") } label: { Image(systemName: "gobackward.10").font(.system(size: 28)).frame(width: 48, height: 48) }.disabled(!playback.seekable).accessibilityLabel("Back ten seconds")
-            Button { playback.toggle(); feedback(playback.showsPause ? "Resuming…" : "Paused") } label: {
-                Image(systemName: playback.showsPause ? "pause.fill" : "play.fill").font(.system(size: 28, weight: .semibold)).frame(width: 60, height: 60).background(.white.opacity(0.16), in: Circle())
-            }.accessibilityLabel(playback.showsPause ? "Pause" : "Play")
-            Button { playback.seek(10); feedback("+10 seconds") } label: { Image(systemName: "goforward.10").font(.system(size: 28)).frame(width: 48, height: 48) }.disabled(!playback.seekable).accessibilityLabel("Forward ten seconds")
+    private func controlRow(availableWidth: CGFloat) -> some View {
+        let slot = max(dynamicTypeSize.isAccessibilitySize ? 60 : 44, (availableWidth - 72) / 6)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                Button { locked = true } label: {
+                    Image(systemName: "lock.open").frame(width: slot, height: 48)
+                }.accessibilityLabel("Lock controls")
+                trackTool.frame(width: slot)
+                Button { playback.seek(-10); feedback("−10 seconds") } label: {
+                    Image(systemName: "gobackward.10").frame(width: slot, height: 48)
+                }.disabled(!playback.seekable).accessibilityLabel("Back ten seconds")
+                Button { playback.toggle(); feedback(playback.showsPause ? "Resuming…" : "Paused") } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: playback.showsPause ? "pause.fill" : "play.fill")
+                        playingIndicator
+                    }.font(.system(size: 16, weight: .semibold)).frame(width: 72, height: 38)
+                        .background(spice, in: Capsule()).foregroundStyle(CinespiceTheme.dark.onAction)
+                        .frame(height: 48).contentShape(Rectangle())
+                }.accessibilityLabel(playback.showsPause ? "Pause" : "Play")
+                Button { playback.seek(10); feedback("+10 seconds") } label: {
+                    Image(systemName: "goforward.10").frame(width: slot, height: 48)
+                }.disabled(!playback.seekable).accessibilityLabel("Forward ten seconds")
+                pictureTool.frame(width: slot)
+                moreTool.frame(width: slot)
+            }.font(.system(size: 21, weight: .medium))
+        }
+    }
+    @ViewBuilder private var playingIndicator: some View {
+        if #available(iOS 17.0, *) {
+            Image(systemName: "waveform").font(.system(size: 13))
+                .symbolEffect(.variableColor.iterative, options: .repeating, isActive: playback.state == .playing && !reduceMotion)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "waveform").font(.system(size: 13)).accessibilityHidden(true)
         }
     }
     private var timeline: some View {
@@ -220,29 +230,10 @@ struct VLCPlaybackView: View {
                 .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
         }
     }
-    @ViewBuilder private var tools: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 16) { toolButtons }.padding(.horizontal, 4)
-            }.padding(.top, 4)
-        } else {
-            HStack(alignment: .top, spacing: 0) { toolButtons }.padding(.top, 4)
-        }
-    }
-    @ViewBuilder private var toolButtons: some View {
-        speedTool.frame(maxWidth: .infinity)
-        trackTool.frame(maxWidth: .infinity)
-        pictureTool.frame(maxWidth: .infinity)
-        rotateTool.frame(maxWidth: .infinity)
-        moreTool.frame(maxWidth: .infinity)
-    }
-    private var speedTool: some View { tool(String(format: "%g×", Double(playback.rate)), "speedometer") { panel = "Speed" }.accessibilityLabel("Playback speed").accessibilityValue(String(format: "%g times", Double(playback.rate))) }
     private func tool(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 20))
-                Text(title).font(.caption2.weight(.medium)).fixedSize(horizontal: false, vertical: true)
-            }.frame(minWidth: dynamicTypeSize.isAccessibilitySize ? 88 : 44, minHeight: 52).contentShape(Rectangle())
+            Image(systemName: symbol).font(.system(size: 21, weight: .medium))
+                .frame(minWidth: 44, minHeight: 48).contentShape(Rectangle())
         }.accessibilityLabel(title)
     }
     private var trackTool: some View { tool("Tracks", "captions.bubble") { panel = "Tracks" } }

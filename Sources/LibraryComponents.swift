@@ -67,14 +67,7 @@ struct CinespiceWordmark: View {
     }
 }
 
-/// The paged hero reserves its measured text height rather than clipping larger type.
-struct HeroHeightPreference: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-/// Keep the visual label and its hit area together. Opacity/background feedback
-/// does not move or shrink the target under the user's finger.
+/// Stationary touch feedback with an optional press callback.
 struct CinespiceButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var onPressChanged: (Bool) -> Void = { _ in }
@@ -106,49 +99,12 @@ struct CinespicePressStyle: ButtonStyle {
     }
 }
 
-/// Use native Liquid Glass with the iOS 26 SDK, keeping iOS 16 and older SDK builds supported.
-struct CinespiceDockMaterial: ViewModifier {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    @ViewBuilder func body(content: Content) -> some View {
-        if reduceTransparency {
-            content.background(theme.surface, in: Capsule())
-        } else {
-#if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                content.glassEffect(.regular.interactive(), in: .capsule)
-            } else {
-                fallback(content)
-            }
-#else
-            fallback(content)
-#endif
-        }
-    }
-
-    private func fallback(_ content: Content) -> some View {
-        content.background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(
-                LinearGradient(colors: [theme.text.opacity(0.22), theme.text.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 0.75))
-    }
-}
-
-struct CinespiceFieldStyle: TextFieldStyle {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
-    func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration.font(.body).padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: 56)
-            .background(theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.separator.opacity(0.4), lineWidth: 0.5))
-    }
-}
-
 struct VideoArtwork: View {
     @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var library: LibraryStore
     let video: TelegramVideo
+    var contentMode: ContentMode = .fill
     @State private var image: UIImage?
     @State private var failed = false
     private static let memory: NSCache<NSString, UIImage> = {
@@ -161,12 +117,11 @@ struct VideoArtwork: View {
             ZStack {
                 theme.surface
                 if let image {
-                    Image(uiImage: image).resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                    Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode).frame(width: geometry.size.width, height: geometry.size.height).clipped()
                 } else {
                     LinearGradient(colors: [theme.accent.opacity(0.12), theme.surface, theme.background], startPoint: .topLeading, endPoint: .bottomTrailing)
                     VStack(spacing: 12) {
                         Image(systemName: "film.stack").font(.system(size: 30, weight: .regular))
-                        Text(video.title).font(.caption.weight(.medium)).lineLimit(3).multilineTextAlignment(.center)
                     }.foregroundStyle(theme.muted).padding(18)
                 }
             }
@@ -247,12 +202,12 @@ struct VideoCard: View {
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.text.opacity(0.08), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
             .contentShape(Rectangle())
-        }.buttonStyle(CinespicePressStyle()).accessibilityLabel("Details for \(video.title)")
+        }.buttonStyle(.plain).accessibilityLabel("Details for \(video.displayTitle)")
     }
     private var metadata: some View {
         HStack(alignment: .top, spacing: 5) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(video.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
+                Text(video.displayTitle).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
                 if telegram.preparingDownloads.contains(video.id) {
                     ProgressView("Preparing download…").font(.caption2)
                 } else if telegram.cancellingDownloads.contains(video.fileID) {
@@ -278,18 +233,11 @@ struct VideoCard: View {
     }
     private var controls: some View {
         HStack(spacing: 4) {
-            Button { play(true) } label: {
-                Image(systemName: "play.fill").font(.system(size: 13, weight: .semibold))
-                    .offset(x: 1).frame(width: 34, height: 34)
-                    .background(theme.action, in: Circle()).foregroundStyle(theme.onAction)
-                    .frame(width: 44, height: 44)
-            }.disabled(opening).accessibilityLabel("Play \(video.title)")
+            Button { play(true) } label: { MediaPlayPill(progress: library.snapshot.history[video.id]?.fraction) }
+                .disabled(opening).accessibilityLabel("Play \(video.displayTitle)")
             Spacer(minLength: 0)
-            Button(action: info) {
-                Image(systemName: "info.circle").font(.system(size: 21, weight: .regular))
-                    .foregroundStyle(theme.muted).frame(width: 44, height: 44)
-            }.accessibilityLabel("More info about \(video.title)")
-        }.buttonStyle(CinespicePressStyle())
+            Button(action: info) { MediaInfoIcon() }.accessibilityLabel("More info about \(video.displayTitle)")
+        }.buttonStyle(.plain)
     }
     @ViewBuilder private var videoActions: some View {
         ForEach(["Favorites", "Watchlist"], id: \.self) { list in
@@ -352,31 +300,24 @@ struct VideoDetailsView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 20)) : AnyLayout(HStackLayout(alignment: .bottom, spacing: 20))
-                    layout {
-                        VideoArtwork(video: video).aspectRatio(CinespiceLayout.posterRatio, contentMode: .fit)
-                            .frame(maxWidth: 145).clipShape(RoundedRectangle(cornerRadius: 16))
-                            .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(video.title).font(.title2.weight(.bold)).textSelection(.enabled)
-                            Text(video.formatLabel).font(.caption.weight(.semibold)).foregroundStyle(theme.muted)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    VideoArtwork(video: video, contentMode: .fit)
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("About this video").font(.headline)
+                        Text(video.fileName ?? video.title).font(.body).textSelection(.enabled)
+                        if let caption = video.caption, caption.trimmingCharacters(in: .whitespacesAndNewlines) != (video.fileName ?? video.title).trimmingCharacters(in: .whitespacesAndNewlines) {
+                            Text(caption).font(.body).foregroundStyle(theme.muted).textSelection(.enabled)
+                        }
                     }
                     VStack(alignment: .leading, spacing: 16) {
                         Label("File information", systemImage: "info.circle").font(.headline)
-                        Text(video.fileName ?? video.title).font(.subheadline).textSelection(.enabled)
-                        Divider()
+                        detailRow("Format", value: video.formatLabel)
                         detailRow("Size", value: ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file))
                         if video.date > 0 {
                             detailRow("Added", value: Date(timeIntervalSince1970: Double(video.date)).formatted(date: .abbreviated, time: .omitted))
                         }
                     }.padding(20).background(theme.surface, in: RoundedRectangle(cornerRadius: 22))
-                    if let caption = video.caption {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("About this video").font(.headline)
-                            Text(caption).font(.body).foregroundStyle(theme.muted).textSelection(.enabled)
-                        }
-                    }
                 }.padding(24).frame(maxWidth: 700).frame(maxWidth: .infinity)
             }.background(theme.background).navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } } }
@@ -436,40 +377,30 @@ struct MediaOpeningOverlay: View {
     }
 }
 
-/// Observe taps without cancelling SwiftUI buttons or scroll gestures. Text inputs
-/// retain focus; every other tap dismisses the keyboard, including in sheets.
-struct KeyboardDismissObserver: UIViewRepresentable {
-    final class Host: UIView {
-        var attach: ((UIWindow?) -> Void)?
-        override func didMoveToWindow() { super.didMoveToWindow(); attach?(window) }
+
+/// Compact visual with a full-height touch target; progress is saved playback only.
+struct MediaPlayPill: View {
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
+    var progress: Double? = nil
+    var body: some View {
+        Image(systemName: "play.fill").font(.system(size: 13, weight: .semibold))
+            .offset(x: 1).frame(width: 56, height: 34)
+            .foregroundStyle(theme.onAction).background(theme.action, in: Capsule())
+            .overlay(alignment: .bottom) {
+                if let progress, progress > 0, progress < 1 {
+                    ProgressView(value: progress).tint(theme.onAction).frame(width: 30).padding(.bottom, 5)
+                }
+            }.frame(minHeight: 44).contentShape(Rectangle()).accessibilityHidden(true)
     }
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        weak var window: UIWindow?
-        lazy var tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
-        func attach(_ window: UIWindow?) {
-            guard self.window !== window else { return }
-            self.window?.removeGestureRecognizer(tap)
-            self.window = window
-            tap.cancelsTouchesInView = false; tap.delegate = self
-            window?.addGestureRecognizer(tap)
-        }
-        @objc private func dismissKeyboard() { window?.endEditing(true) }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            var view = touch.view
-            while let current = view {
-                if current is UITextField || current is UITextView { return false }
-                view = current.superview
-            }
-            return true
-        }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+}
+
+struct MediaInfoIcon: View {
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
+    var body: some View {
+        Image(systemName: "info").font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(theme.text).frame(width: 34, height: 34)
+            .background(theme.text.opacity(0.08), in: Circle())
+            .overlay(Circle().strokeBorder(theme.separator.opacity(0.5), lineWidth: 0.5))
+            .frame(width: 44, height: 44).contentShape(Rectangle()).accessibilityHidden(true)
     }
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeUIView(context: Context) -> Host {
-        let view = Host(); view.isUserInteractionEnabled = false
-        view.attach = { [weak coordinator = context.coordinator] in coordinator?.attach($0) }
-        return view
-    }
-    func updateUIView(_ view: Host, context: Context) { }
-    static func dismantleUIView(_ view: Host, coordinator: Coordinator) { coordinator.attach(nil); view.attach = nil }
 }

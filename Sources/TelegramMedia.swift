@@ -24,6 +24,24 @@ struct TelegramVideo: Identifiable, Hashable, Sendable, Codable {
     var mediaKind: String? = nil
     var isAudio: Bool { mediaKind == "audio" || mimeType.lowercased().hasPrefix("audio/") || Self.audioExtensions.contains(((fileName ?? title) as NSString).pathExtension.lowercased()) }
     static let audioExtensions: Set<String> = ["mp3", "m4a", "aac", "flac", "ogg", "oga", "opus", "wav", "aiff", "alac", "wma", "ac3", "dts", "mka", "ape", "aif", "aifc", "amr"]
+    static let videoExtensions: Set<String> = ["mp4", "m4v", "mkv", "mov", "avi", "webm", "mpeg", "mpg", "ts", "m2ts", "wmv", "flv", "ogv", "vob", "3gp", "3g2", "mts", "m2v", "divx", "asf", "f4v", "ogm", "rm", "rmvb", "nut", "mxf", "hevc", "h265", "h264", "av1", "m2p", "mpv", "mpe", "mjpeg", "mjpg", "mk3d", "3gpp", "3gpp2", "y4m", "dv"]
+
+    /// Presentation only: keep title/fileName untouched for persistence and export.
+    var displayTitle: String {
+        var value = (fileName ?? title).components(separatedBy: .newlines).first ?? ""
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let extensions = Self.videoExtensions.union(Self.audioExtensions).sorted().joined(separator: "|")
+        value = value.replacingOccurrences(of: "(?i)\\.(" + extensions + ")(?:\\s+\\1)?$", with: "", options: .regularExpression)
+        // Match this known source before replacing separators: underscores can
+        // otherwise make a handle indistinguishable from the film name.
+        value = value.replacingOccurrences(of: #"(?i)^\s*[\[({]?\s*(?:(?:tg|telegram)[\s_.:-]*)?@streamers[-_]?hub[\])}]?[\s_.:-]*"#, with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: #"(?i)^\s*(?:tg|telegram)\s+@[a-z0-9_]+\s+"#, with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: #"(?<=[\w)])\.(?=[\w(])"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "._-")))
+        return value.isEmpty ? "Untitled video" : value
+    }
     var formatLabel: String {
         let ext = ((fileName ?? title) as NSString).pathExtension
         return ext.isEmpty ? (isAudio ? "AUDIO" : "VIDEO") : String(ext.prefix(8)).uppercased()
@@ -59,8 +77,7 @@ struct TelegramVideo: Identifiable, Hashable, Sendable, Codable {
         } else { return nil }
         let name = media["file_name"] as? String ?? ""
         let mime = media["mime_type"] as? String ?? (isVideo ? "video/mp4" : "application/octet-stream")
-        let videoExtensions: Set<String> = ["mp4", "m4v", "mkv", "mov", "avi", "webm", "mpeg", "mpg", "ts", "m2ts", "wmv", "flv", "ogv", "vob", "3gp", "3g2", "mts", "m2v", "divx", "asf", "f4v", "ogm", "rm", "rmvb", "nut", "mxf", "hevc", "h265", "h264", "av1", "m2p", "mpv", "mpe", "mjpeg", "mjpg", "mk3d", "3gpp", "3gpp2", "y4m", "dv"]
-        guard isVideo || mime.lowercased().hasPrefix("video/") || videoExtensions.contains((name as NSString).pathExtension.lowercased()),
+        guard isVideo || mime.lowercased().hasPrefix("video/") || Self.videoExtensions.contains((name as NSString).pathExtension.lowercased()),
               let fileID = file["id"] as? Int32 else { return nil }
         let local = file["local"] as? [String: Any] ?? [:]
         let caption = (content["caption"] as? [String: Any])?["text"] as? String ?? ""

@@ -8,16 +8,18 @@ See [Android translation](ANDROID-UI.md) and [device checks](TOUCH-CHECKLIST.md)
 
 - Header: CINESPICE refresh button, one Channels icon, Profile icon. A back arrow
   appears inside a collection. No duplicate search or channel-selection shortcuts.
-- Footer: **Home / Search / Library / Downloads**. Four equal cells in a floating dock;
-  48-point minimum targets, 3-point vertical padding. Header controls remain at
-  least 44 points. Safe-area space is retained for the camera and home indicator.
+- Footer: **Home / Search / Library / Downloads** use native SwiftUI TabView.
+  System sizing, selection, animation and accessibility adapt to the OS. Header
+  controls remain at least 44 points; safe areas are retained. iOS 26 supplies
+  its native floating appearance; earlier systems use their native tab bar.
 - Content uses 20–24-point margins, adaptive grids (140-point minimum cards),
   a 1,200-point maximum content width, and 16–20-point section gaps.
 - Scroll identity includes account, destination, collection and saved-list choice.
   Switching destinations starts at the top. Returning from a player preserves the
   underlying destination and scroll state. No shared offset between tabs.
-- Outside taps dismiss the keyboard without cancelling button touches. Text
-  inputs retain focus, and library/picker scrolling dismisses interactively.
+- Login uses native rounded fields and prominent Continue buttons. Keyboard Done,
+  interactive scroll dismissal and focus-aware form scrolling keep controls and
+  errors reachable. No window-wide tap recognizer competes with buttons.
 - Cinespice refreshes an open collection or active search. Elsewhere it queues one
   newest page per selected source through the existing serial loader. It does not
   erase cached metadata, lists, progress or older-page cursors. Feedback appears
@@ -105,8 +107,8 @@ black video surface and readable white controls, with matching dark option sheet
 Preferences remain under `cinespice.theme`. Older names resolve as follows:
 Cinema → Dark; Ember → Crimson; Midnight → Silver; Pearl/Sage → Glass. These
 replace the previous choices intentionally without resetting local account data.
-Native list rows use the chosen surface palette. Liquid Glass remains reserved
-for the navigation dock, with availability and accessibility fallbacks.
+Native list rows use the chosen surface palette. Navigation material and motion
+are owned by the system tab bar and its accessibility settings.
 
 ## Player
 
@@ -136,7 +138,7 @@ unit tests do not establish visual correctness or iOS touch behavior.
 
 Cards expose compact Play and Info buttons with 44-point touch targets. Artwork
 opens details; long press reveals saved lists, playback, download/export and history
-actions using native context menus. Home uses portrait cards in horizontal rows, including Continue Watching. Play controls use compact circles with at least 44-point touch targets.
+actions using native context menus. Home uses portrait cards in horizontal rows, including Continue Watching. Play controls use compact 56 × 34-point pills with at least 44-point touch targets and real saved progress when available.
 
 Login reads build-injected Telegram credentials; API entry fields are removed.
 Phone entry separates country calling code and national number. Code entry offers
@@ -153,12 +155,23 @@ contracts. Native compilation, accessibility and device acceptance remain requir
   Release order continues to use filename year hints, never invented catalogue dates.
 - Channel rows retain the 15-title limit, horizontal scrolling and collection arrow.
   Portrait artwork is independent of scroll direction.
-- Dock selection moves between destinations with a damped spring and selection haptic.
-  Press animations scale labels inside fixed touch targets. Reduce Motion disables
-  these animations; Reduce Transparency uses a solid dock surface.
-- Native Liquid Glass is used only with Swift 6.2+/iOS 26 SDK and iOS 26 runtime.
-  Older compilers and systems use the material fallback. Deployment stays iOS 16.
-- Details uses a poster, title and grouped file information; profile uses a larger
-  account header. Search, Downloads and login share larger, quieter headings.
+- Native TabView replaces the custom dock, selection spring and gesture handling.
+  CI uses macOS 26 and its Xcode SDK; deployment remains iOS 16. Appearance follows
+  the installed iOS version, including its accessibility preferences.
+- All seven hero pages reserve the same artwork and scaled metadata dimensions,
+  regardless of available content. Native paging owns horizontal swipes. Long
+  metadata scrolls vertically inside its reserved region.
+- Cards, hero, opening overlay and player use cleaned display names. Known source
+  prefixes, separator underscores/dots and media extensions are removed only for
+  presentation. Title sorting uses those names; filename-year sorting, persistence
+  and Files export retain original data. About shows the original filename once
+  and retains the caption (an identical caption is not repeated).
+- Details displays the complete thumbnail with fit/letterboxing. Player controls
+  use one horizontal row, scrolling on narrow/large-text displays. The play/pause
+  pill shows a native waveform animated only during actual playback, respecting
+  Reduce Motion. Speed remains in More; rotation remains in the top bar.
+- TDLib setup is guarded per client against duplicate initial state updates/queries;
+  stale state-query responses and setup failures cannot replace newer login stages.
+  Build credential validation and real OTP/password/email handlers remain intact.
 - Reference: https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass
   and https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views
