@@ -4,6 +4,7 @@ struct TelegramLibraryView: View {
     @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
     @AppStorage("cinespice.order") private var order: LibraryOrder = .latestRelease
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var dailySeed = Int(Date().timeIntervalSince1970 / 86400)
     @State private var savedList = "Favorites"
     @State private var lastSearchVideo: TelegramVideo?
@@ -11,8 +12,8 @@ struct TelegramLibraryView: View {
     @EnvironmentObject private var telegram: TelegramClient
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var rangeServer: TelegramRangeServer
-    @State private var apiID = ""
-    @State private var apiHash = ""
+    @State private var countryCode = "+91"
+    @State private var homeSeed = UUID().uuidString
     @State private var phone = ""
     @State private var code = ""
     @State private var password = ""
@@ -71,7 +72,7 @@ struct TelegramLibraryView: View {
         } message: { Text(playbackError) }
         .onChange(of: telegram.stage) { stage in
             if stage != .code { code = "" }; if stage != .password { password = "" }; if stage != .emailCode { emailCode = "" }
-            if stage == .ready { apiID = ""; apiHash = "" }
+
             if stage != .ready {
                 cancelOpening()
                 showCollections = false; showSettings = false
@@ -108,9 +109,9 @@ struct TelegramLibraryView: View {
             }.coordinateSpace(name: "library-scroll")
                 .scrollDismissesKeyboard(.interactively)
                 .id("\(tab)_\(collection?.id ?? 0)_\(tab == 1 ? savedList : "")_\(library.sessionID)")
-            tabs
         }
 
+        .safeAreaInset(edge: .bottom, spacing: 0) { tabs }
         .buttonStyle(CinespiceButtonStyle())
         .task(id: refreshMessage) {
             guard !refreshMessage.isEmpty else { return }
@@ -166,29 +167,37 @@ struct TelegramLibraryView: View {
         VStack(alignment: .leading, spacing: 20) {
             heroCarousel
             if !library.continueWatching.isEmpty { rail("Continue Watching", subtitle: "", videos: Array(library.continueWatching.prefix(12)), wide: true) }
-            if !library.selectedCollections.isEmpty {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack { Text("Your channels").font(.title3.weight(.bold)); Spacer(); Button("Manage") { showCollections = true }.font(.caption.weight(.semibold)).foregroundStyle(theme.muted) }.padding(.horizontal, 20)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 12) { ForEach(library.selectedCollections) { channelTile($0).frame(width: 238) } }.padding(.horizontal, 20)
-                    }
-                }
-                ForEach(Array(library.selectedCollections.prefix(4))) { chat in
-                    let videos = browseVideos.filter { $0.chatID == chat.id }
-                    if !videos.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Button { openCollection(chat) } label: { HStack { Text(chat.title).font(.title3.weight(.bold)); Spacer(); Image(systemName: "chevron.right").font(.caption.weight(.semibold)) }.foregroundStyle(theme.text).padding(.horizontal, 20).frame(minHeight: 44).contentShape(Rectangle()) }
-                            posterRail(Array(videos.prefix(18)), wide: false)
-                        }
-                    }
+            if library.selectedCollections.isEmpty {
+                LibraryEmptyState(symbol: "rectangle.stack", title: "Your cinema starts here", detail: "Choose channels above to start exploring your videos.")
+            }
+            ForEach(library.selectedCollections) { chat in
+                let videos = homeVideos(chat.id)
+                VStack(alignment: .leading, spacing: 12) {
+                    Button { openCollection(chat) } label: {
+                        HStack {
+                            Text(chat.title).font(.title3.weight(.bold)).lineLimit(1)
+                            Spacer()
+                            Image(systemName: "arrow.right.circle.fill").foregroundStyle(theme.accent)
+                        }.foregroundStyle(theme.text).padding(.horizontal, 20).frame(minHeight: 44)
+                    }.accessibilityLabel("Open " + chat.title)
+                    if videos.isEmpty {
+                        Text("No videos loaded yet. Open this channel to browse.").font(.subheadline).foregroundStyle(theme.muted).padding(.horizontal, 20)
+                    } else { posterRail(videos, wide: true) }
                 }
             }
-            HStack { Text("Your library").font(.title3.bold()); Spacer(); sortControl }.padding(.horizontal, 20)
-            releaseSortHint
-            if browseVideos.isEmpty { LibraryEmptyState(symbol: "film", title: "Your cinema starts here", detail: "Use the channel icon above to select and open a source. Only your selected sources load videos.") }
-            else { grid(browseVideos) }
             if !telegram.loadingCollections.isEmpty { ProgressView("Loading a small page…").frame(maxWidth: .infinity).font(.caption).tint(theme.accent) }
         }
+    }
+
+    // Stable within a launch, varied on the next launch. Never changes resume ordering.
+    private func homeVideos(_ chatID: Int64) -> [TelegramVideo] {
+        func rank(_ id: String) -> UInt64 {
+            (homeSeed + id).utf8.reduce(UInt64(14695981039346656037)) { ($0 ^ UInt64($1)) &* 1099511628211 }
+        }
+        return Array(library.videos.filter { $0.chatID == chatID }.sorted {
+            let left = rank($0.id), right = rank($1.id)
+            return left == right ? $0.id < $1.id : left < right
+        }.prefix(15))
     }
 
     private func channelTile(_ chat: TelegramChat) -> some View {
@@ -298,7 +307,7 @@ struct TelegramLibraryView: View {
             Picker("Saved list", selection: $savedList) { Text("Favorites").tag("Favorites"); Text("Watchlist").tag("Watchlist") }.pickerStyle(.segmented).padding(.horizontal, 24)
             HStack { Text("\(items.count) titles").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
             releaseSortHint
-            if items.isEmpty { LibraryEmptyState(symbol: savedList == "Favorites" ? "heart" : "bookmark", title: "Make it yours", detail: "Open a video's ••• menu to add it here. Saved items from deselected sources stay saved and reappear when selected again.") }
+            if items.isEmpty { LibraryEmptyState(symbol: savedList == "Favorites" ? "heart" : "bookmark", title: "Make it yours", detail: "Touch and hold a video to add it here. Saved items from deselected sources stay saved and reappear when selected again.") }
             else { grid(items) }
         }.id(savedList)
     }
@@ -307,7 +316,7 @@ struct TelegramLibraryView: View {
         let items = order.sort(library.videos.filter { library.display($0).isDownloaded || telegram.fullDownloads.contains($0.fileID) || telegram.preparingDownloads.contains($0.id) })
         return VStack(alignment: .leading, spacing: 16) {
             pageTitle("Downloads", subtitle: "READY FOR YOUR NEXT WATCH")
-            Text("Download from any video's ••• menu. Completed downloads offer Save to Files with the original filename. Clear local downloads in Profile → Storage.").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 24)
+            Text("Touch and hold any video to download. Completed downloads offer Save to Files with the original filename. Clear local downloads in Profile → Storage.").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 24)
             HStack { Text("\(items.count) titles").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
             releaseSortHint
             if items.isEmpty { LibraryEmptyState(symbol: "arrow.down.circle", title: "Take your cinema with you", detail: "Full downloads from selected sources appear here. Partial streaming buffers are not downloads.") }
@@ -396,7 +405,7 @@ struct TelegramLibraryView: View {
         }.padding(.horizontal, 24)
     }
     private func card(_ video: TelegramVideo, wide: Bool = false) -> some View {
-        VideoCard(video: video, wide: wide, opening: openingID == video.id, play: { play(video, resume: $0) }, download: { rangeServer.stop(); telegram.download(video) }, export: { exportVideo(video) })
+        VideoCard(video: video, wide: wide, opening: openingID == video.id, play: { play(video, resume: $0) }, download: { rangeServer.stop(); telegram.download(video) }, export: { exportVideo(video) }, info: { detailsVideo = video })
     }
     private func exportVideo(_ video: TelegramVideo) {
         guard !exporting else { return }; exporting = true
@@ -458,31 +467,53 @@ struct TelegramLibraryView: View {
             tabButton(2, "Search", "magnifyingglass")
             tabButton(3, "Downloads", "arrow.down.circle")
             tabButton(4, "History", "clock")
-            tabButton(5, "My channels", "rectangle.stack")
-        }.padding(.horizontal, 8).padding(.vertical, 3).background(.ultraThinMaterial)
+        }.padding(8)
+            .background {
+                if reduceTransparency {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(theme.surface)
+                } else {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 30).strokeBorder(theme.text.opacity(0.12), lineWidth: 1))
+            .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+            .padding(.horizontal, 16).padding(.bottom, 8).padding(.top, 6)
     }
     private func tabButton(_ index: Int, _ title: String, _ symbol: String) -> some View {
         Button { tab = index; collection = nil } label: {
-            VStack(spacing: 4) { Image(systemName: symbol).font(.system(size: 18, weight: tab == index ? .semibold : .regular)); Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.72) }.frame(maxWidth: .infinity, minHeight: 48).contentShape(Rectangle())
+            VStack(spacing: 4) { Image(systemName: symbol).font(.system(size: 18, weight: tab == index ? .semibold : .regular)); Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.72) }.frame(maxWidth: .infinity, minHeight: 48).background(tab == index ? theme.accent.opacity(0.16) : .clear, in: Capsule()).contentShape(Rectangle())
         }.accessibilityLabel(title).accessibilityAddTraits(tab == index ? .isSelected : [])
             .foregroundStyle(tab == index ? theme.accent : theme.muted).accessibilityValue(tab == index ? "Selected" : "")
     }
 
     @ViewBuilder private var authentication: some View {
         switch telegram.stage {
-        case .credentials: authForm("Your private cinema.", subtitle: "Connect your Telegram account. API credentials and your session stay on this iPhone.") {
-            TextField("API ID", text: $apiID).keyboardType(.numberPad)
-            SecureField("API hash", text: $apiHash)
-            Button { telegram.connect(apiID: apiID, apiHash: apiHash) } label: { Text("Connect Telegram").frame(minHeight: 44) }.buttonStyle(.borderedProminent).tint(theme.accent)
-            Text("Get your API ID and hash at my.telegram.org. No backend, subscriptions or analytics.").font(.caption).foregroundStyle(theme.muted)
+        case .credentials: authForm("Your private cinema.", subtitle: "Sign in with Telegram to bring your channels, videos and favorites together.") {
+            authButton { telegram.connectUsingBuildCredentials() }
         }
-        case .phone: authForm("Your phone number", subtitle: "Use the number linked to your Telegram account.") { TextField("+1 555 555 5555", text: $phone).keyboardType(.phonePad); authButton { telegram.submitPhone(phone) } }
-        case .code: authForm("Check Telegram", subtitle: "Enter the sign-in code sent by Telegram.") { TextField("Login code", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode); authButton { telegram.submitCode(code) } }
+        case .phone: authForm("Welcome to your cinema", subtitle: "Enter the phone number linked to Telegram, including its country calling code.") {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading) {
+                    Text("Country code").font(.caption).foregroundStyle(theme.muted)
+                    TextField("+91", text: $countryCode).keyboardType(.phonePad).accessibilityLabel("Country calling code")
+                }.frame(width: 110)
+                VStack(alignment: .leading) {
+                    Text("Phone number").font(.caption).foregroundStyle(theme.muted)
+                    TextField("Phone number", text: $phone).keyboardType(.phonePad).textContentType(.telephoneNumber)
+                }
+            }
+            authButton { telegram.submitPhone(countryCode: countryCode, number: phone) }
+        }
+        case .code: authForm("Check Telegram", subtitle: "Enter the code sent by Telegram. It may arrive in your Telegram app rather than by SMS.") {
+            TextField("Login code", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode)
+            authButton { telegram.submitCode(code) }
+            Button("Didn't receive a code? Resend") { telegram.resendCode() }.disabled(telegram.isAuthenticating)
+        }
         case .password: authForm("One more step", subtitle: "Enter your Telegram two-step verification password.") { SecureField("Password", text: $password); authButton { telegram.submitPassword(password) } }
         case .email: authForm("Your sign-in email", subtitle: "Telegram requires an email address for this login.") { TextField("Email", text: $email).keyboardType(.emailAddress); authButton { telegram.submitEmail(email) } }
         case .emailCode: authForm("Check your email", subtitle: "Enter the verification code from Telegram.") { TextField("Email code", text: $emailCode).keyboardType(.numberPad); authButton { telegram.submitEmailCode(emailCode) } }
         case .loading: VStack(spacing: 24) { Text("CINESPICE").font(.system(size: 28, weight: .black, design: .rounded)).tracking(6); ProgressView("Restoring your library…").tint(theme.accent) }
-        case let .error(message): authForm("Connection needs attention", subtitle: message) { Button { telegram.resetAuth() } label: { Text("Back to sign in").frame(minHeight: 44) }.buttonStyle(CinespiceButtonStyle()).tint(theme.accent) }
+        case let .error(message): authForm("Connection needs attention", subtitle: message) { Button { telegram.resetAuth() } label: { Text("Retry connection").frame(minHeight: 44) }.buttonStyle(CinespiceButtonStyle()).tint(theme.accent) }
         case .ready: EmptyView()
         }
     }
@@ -492,10 +523,18 @@ struct TelegramLibraryView: View {
     private func authForm<Content: View>(_ title: String, subtitle: String, @ViewBuilder content: () -> Content) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 23) {
-                Text("CINESPICE").font(.system(size: 22, weight: .black, design: .rounded)).tracking(5).foregroundStyle(theme.accent).padding(.bottom, 48)
+                if telegram.stage != .credentials {
+                    Button { telegram.restartLogin() } label: {
+                        Label("Back to sign in", systemImage: "chevron.left")
+                    }.disabled(telegram.isAuthenticating).frame(minHeight: 44)
+                }
+                Image(systemName: "play.rectangle.on.rectangle.fill")
+                    .font(.system(size: 48, weight: .light)).foregroundStyle(theme.accent)
+                    .padding(24).background(theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 28))
+                Text("CINESPICE").font(.system(size: 22, weight: .black, design: .rounded)).tracking(5).foregroundStyle(theme.accent).padding(.bottom, 12)
                 Text(title).font(.system(size: 38, weight: .medium, design: .serif)).tracking(-1)
                 Text(subtitle).font(.subheadline).foregroundStyle(theme.muted).lineSpacing(5)
-                content().textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).disableAutocorrection(true)
+                content().font(.body).textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).disableAutocorrection(true)
                 if !telegram.status.isEmpty { Text(telegram.status).font(.caption).foregroundStyle(.orange) }
             }.padding(28).frame(maxWidth: 500).frame(maxWidth: .infinity)
         }

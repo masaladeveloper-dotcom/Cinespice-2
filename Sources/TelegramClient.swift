@@ -104,17 +104,23 @@ final class TelegramClient: ObservableObject {
 
     func restoreSession() {
         guard !restored else { return }; restored = true
-        do {
-            guard let data = try SecureStore.read("telegram_api_credentials") else { return }
-            let credentials = try JSONDecoder().decode(TelegramCredentials.self, from: data)
-            connect(apiID: credentials.apiID, apiHash: credentials.apiHash)
-        } catch { stage = .error("Could not restore saved credentials: \(error.localizedDescription)") }
+        connectUsingBuildCredentials()
+    }
+
+    func connectUsingBuildCredentials() {
+        guard let url = Bundle.main.url(forResource: "TelegramBuildCredentials", withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let credentials = try? PropertyListDecoder().decode(TelegramCredentials.self, from: data) else {
+            stage = .error("This build is missing Telegram configuration. Install a build configured with TELEGRAM_API_ID and TELEGRAM_API_HASH.")
+            return
+        }
+        connect(apiID: credentials.apiID, apiHash: credentials.apiHash)
     }
 
     func connect(apiID: String, apiHash: String) {
         let hash = apiHash.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let value = Int32(apiID), value > 0, hash.count == 32, hash.allSatisfy({ $0.isHexDigit }) else {
-            stage = .error("Enter a valid Telegram API ID and 32-character API hash."); return
+            stage = .error("This build has invalid Telegram configuration. Please install a configured build."); return
         }
         do { try SecureStore.save(JSONEncoder().encode(TelegramCredentials(apiID: String(value), apiHash: hash)), key: "telegram_api_credentials") }
         catch { stage = .error(error.localizedDescription); return }
@@ -123,7 +129,35 @@ final class TelegramClient: ObservableObject {
         send(["@type": "getAuthorizationState"])
     }
 
-    func submitPhone(_ phone: String) { submitAuthentication(["@type": "setAuthenticationPhoneNumber", "phone_number": phone]) }
+    func submitPhone(countryCode: String, number: String) {
+        let callingCode = countryCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = number.filter { $0 >= "0" && $0 <= "9" }
+        guard callingCode.hasPrefix("+"), (2...4).contains(callingCode.count),
+              callingCode.dropFirst().allSatisfy({ $0 >= "0" && $0 <= "9" }),
+              callingCode.dropFirst().first != "0", !digits.isEmpty,
+              callingCode.count - 1 + digits.count <= 15 else {
+            status = "Enter a country code such as +91 and a valid phone number."; return
+        }
+        submitAuthentication(["@type": "setAuthenticationPhoneNumber", "phone_number": callingCode + digits])
+    }
+    func resendCode() {
+        guard stage == .code else { return }
+        submitAuthentication(["@type": "resendAuthenticationCode"])
+    }
+
+    /// Restart the server-side authorization flow, rather than only changing the visible screen.
+    func restartLogin() {
+        guard stage != .ready, stage != .loading, !isAuthenticating else { return }
+        let previous = stage
+        authenticationRequest = UUID(); loggingOut = true; isAuthenticating = true; stage = .loading; status = ""
+        let session = accountSession
+        send(["@type": "logOut"]) { [weak self] result in
+            guard let self, self.accountSession == session else { return }
+            if case let .failure(error) = result {
+                self.loggingOut = false; self.isAuthenticating = false; self.stage = previous; self.status = error.localizedDescription
+            }
+        }
+    }
     func submitCode(_ code: String) { submitAuthentication(["@type": "checkAuthenticationCode", "code": code]) }
     func submitPassword(_ password: String) { submitAuthentication(["@type": "checkAuthenticationPassword", "password": password]) }
     func submitEmail(_ email: String) { submitAuthentication(["@type": "setAuthenticationEmailAddress", "email_address": email]) }
@@ -142,7 +176,7 @@ final class TelegramClient: ObservableObject {
             }
         }
     }
-    func resetAuth() { authenticationRequest = UUID(); stage = .credentials; status = ""; isAuthenticating = false }
+    func resetAuth() { connectUsingBuildCredentials() }
 
     func refreshChats() { loadMoreChats() }
     func loadMoreChats() {
@@ -490,6 +524,7 @@ final class TelegramClient: ObservableObject {
         if value["@type"] as? String == "error" { status = value["message"] as? String ?? "Telegram request failed"; return }
         let responseType = value["@type"] as? String ?? ""
         let type = responseType == "updateAuthorizationState" ? (value["authorization_state"] as? [String: Any])?["@type"] as? String : responseType
+        if loggingOut, type != "authorizationStateClosed" { return }
         switch type {
         case "authorizationStateWaitTdlibParameters": configure()
         case "authorizationStateWaitPhoneNumber": stage = .phone
@@ -556,6 +591,7 @@ final class TelegramClient: ObservableObject {
             catch { stage = .error(error.localizedDescription); return }
         }
         stage = .credentials
+        connectUsingBuildCredentials()
     }
 
     private func configure() {

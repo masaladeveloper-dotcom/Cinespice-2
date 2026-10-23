@@ -8,7 +8,7 @@ See [Android translation](ANDROID-UI.md) and [device checks](TOUCH-CHECKLIST.md)
 
 - Header: CINESPICE refresh button, one Channels icon, Profile icon. A back arrow
   appears inside a collection. No duplicate search or channel-selection shortcuts.
-- Footer: **Home / Favorites / Search / Downloads / History**. Five equal cells;
+- Footer: **Home / Favorites / Search / Downloads / History**. Five equal cells in a floating material dock;
   48-point minimum targets, 3-point vertical padding. Header controls remain at
   least 44 points. Safe-area space is retained for the camera and home indicator.
 - Content uses 20–24-point margins, adaptive grids (140-point minimum cards),
@@ -27,7 +27,7 @@ See [Android translation](ANDROID-UI.md) and [device checks](TOUCH-CHECKLIST.md)
 
 | Page | Content and behavior |
 | --- | --- |
-| Home | Seven-slot swipe hero, Continue Watching (up to 12), and one horizontal rail of selected channel cards. No global library grid or per-channel video rails. |
+| Home | Seven-slot swipe hero, Continue Watching (up to 12), and one horizontal row per selected channel (up to 15 cached videos). Each channel heading opens its collection. No global library grid or duplicate channel-card rail. Channel video order varies per app launch and stays stable while browsing; hero and Continue Watching retain their existing ordering. |
 | Favorites | Favorites and Watchlist segmented choices; empty guidance; sorting |
 | Search | Universal input across all selected channels and groups. Empty guidance initially; only nonempty queries show cached and remote results; paging remains bounded |
 | Downloads | Preparing, active and completed full downloads from selected sources; video menu exposes cancel/export; streaming fragments are excluded |
@@ -49,7 +49,7 @@ collection page requests at most 30 video and 30 document messages per page.
 
 ### Saved lists and downloads
 
-The video ••• menu adds/removes **Favorites** or **Watchlist**, with saving feedback
+The video long-press context menu adds/removes **Favorites** or **Watchlist**, with saving feedback
 and a heart/bookmark on the card. SQLite schema 3 stores membership by scoped
 message ID (`chatID:messageID`), independently of history/cache state. A saved
 remote search result gets metadata persisted with its membership. Deselecting a
@@ -134,3 +134,18 @@ notched iPhone, small iPhone and iPad, portrait and locked landscape. Verify all
 four palettes, keyboard interactions, independent scrolling, upgrade persistence,
 completed download restart/export, seven hero slots and player options. Portable
 unit tests do not establish visual correctness or iOS touch behavior.
+
+## Login and video actions update
+
+Cards expose compact Play and Info buttons with 44-point touch targets. Artwork
+opens details; long press reveals saved lists, playback, download/export and history
+actions using native context menus. Home uses landscape thumbnails.
+
+Login reads build-injected Telegram credentials; API entry fields are removed.
+Phone entry separates country calling code and national number. Code entry offers
+resend (subject to Telegram limits). Back to sign in restarts TDLib authorization
+via logout and returns to phone entry, including from password/email steps. It
+does not merely change the visible screen while leaving an old challenge active.
+
+These changes intentionally replace the previous Home and credential-entry
+contracts. Native compilation, accessibility and device acceptance remain required.

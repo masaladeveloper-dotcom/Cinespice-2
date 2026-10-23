@@ -94,10 +94,11 @@ struct VideoCard: View {
     let play: (Bool) -> Void
     let download: () -> Void
     let export: () -> Void
+    let info: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Button { play(true) } label: {
+            Button(action: info) {
                 ZStack(alignment: .bottomLeading) {
                     VideoArtwork(video: video)
                     LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
@@ -117,7 +118,7 @@ struct VideoCard: View {
                 .aspectRatio(wide ? 16 / 9 : 0.73, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())
-            }.buttonStyle(CinespiceButtonStyle()).accessibilityLabel("Play \(video.title)")
+            }.buttonStyle(CinespiceButtonStyle()).accessibilityLabel("Details for \(video.title)")
             HStack(alignment: .top, spacing: 5) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(video.title).font(.system(size: 13, weight: .semibold)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
@@ -139,34 +140,46 @@ struct VideoCard: View {
                     Text(library.snapshot.collections.first(where: { $0.id == video.chatID })?.title ?? "Telegram")
                         .font(.system(size: 10)).foregroundStyle(theme.muted).lineLimit(1)
                 }
-                Menu {
-                    ForEach(["Favorites", "Watchlist"], id: \.self) { list in
-                        Button {
-                            guard !savingList else { return }; savingList = true
-                            let saved = library.snapshot.savedLists[list]?.contains(video.id) == true
-                            Task {
-                                defer { savingList = false }
-                                _ = await library.setSaved(video, list: list, saved: !saved)
-                            }
-                        } label: {
-                            Label((library.snapshot.savedLists[list]?.contains(video.id) == true ? "Remove from " : "Add to ") + list, systemImage: list == "Favorites" ? "heart" : "bookmark")
-                        }.disabled(savingList)
-                    }
-                    Button("Play / resume") { play(true) }
-                    Button("Play from beginning") { play(false) }
-                    if telegram.fullDownloads.contains(video.fileID) {
-                        Button("Cancel download") { Task { await telegram.cancelDownload(video) } }.disabled(telegram.cancellingDownloads.contains(video.fileID))
-                    } else { Button("Download first") { download() }.disabled(telegram.preparingDownloads.contains(video.id)) }
-                    if library.display(video).isDownloaded { Button("Save to Files…", action: export) }
-                    Button("Mark watched") { updateHistory(remove: false) }.disabled(savingHistory)
-                    if library.snapshot.history[video.id] != nil {
-                        Button("Remove from watch history") { updateHistory(remove: true) }.disabled(savingHistory)
-                    }
-                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle()) }
-                .buttonStyle(CinespiceButtonStyle())
-                .accessibilityLabel("Options for \(video.title)")
+
+            }
+            HStack(spacing: 8) {
+                Button { play(true) } label: {
+                    Label("Play", systemImage: "play.fill").font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(theme.accent, in: Capsule()).foregroundStyle(theme.scheme == .dark ? Color.black : Color.white)
+                }.disabled(opening).accessibilityLabel("Play \(video.title)")
+                Button(action: info) { Image(systemName: "info.circle").font(.title3).frame(width: 44, height: 44) }
+                    .accessibilityLabel("More info about \(video.title)")
             }
         }.foregroundStyle(theme.text)
+            .contextMenu { videoActions }
+            .accessibilityAction(named: Text("More info"), info)
+    }
+    @ViewBuilder private var videoActions: some View {
+        ForEach(["Favorites", "Watchlist"], id: \.self) { list in
+            Button {
+                guard !savingList else { return }; savingList = true
+                let saved = library.snapshot.savedLists[list]?.contains(video.id) == true
+                Task {
+                    defer { savingList = false }
+                    _ = await library.setSaved(video, list: list, saved: !saved)
+                }
+            } label: {
+                Label((library.snapshot.savedLists[list]?.contains(video.id) == true ? "Remove from " : "Add to ") + list, systemImage: list == "Favorites" ? "heart" : "bookmark")
+            }.disabled(savingList)
+        }
+        Divider()
+        Button { play(true) } label: { Label("Play / resume", systemImage: "play.fill") }
+        Button { play(false) } label: { Label("Play from beginning", systemImage: "backward.end") }
+        Divider()
+        if telegram.fullDownloads.contains(video.fileID) {
+            Button("Cancel download") { Task { await telegram.cancelDownload(video) } }.disabled(telegram.cancellingDownloads.contains(video.fileID))
+        } else { Button(action: download) { Label("Download", systemImage: "arrow.down.circle") }.disabled(telegram.preparingDownloads.contains(video.id)) }
+        if library.display(video).isDownloaded { Button(action: export) { Label("Save to Files…", systemImage: "square.and.arrow.up") } }
+        Button("Mark watched") { updateHistory(remove: false) }.disabled(savingHistory)
+        if library.snapshot.history[video.id] != nil {
+            Button("Remove from watch history") { updateHistory(remove: true) }.disabled(savingHistory)
+        }
     }
     private func updateHistory(remove: Bool) {
         guard !savingHistory else { return }; savingHistory = true
