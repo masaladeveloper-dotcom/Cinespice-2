@@ -22,7 +22,7 @@ final class VideoSort {
             return order == 0 ? by.compareTo(ay) : ay.compareTo(by);
         };
         else if (order == 2 || order == 3) {
-            comparator = Comparator.comparing(v -> v.name.toLowerCase(Locale.ROOT)); if (order == 3) comparator = comparator.reversed();
+            comparator = Comparator.comparing(v -> v.displayTitle.toLowerCase(Locale.ROOT)); if (order == 3) comparator = comparator.reversed();
         } else comparator = order == 5 ? Comparator.comparingLong(v -> v.data.optLong("date")) : newest;
         result.sort(comparator.thenComparing(stable)); return result;
     }

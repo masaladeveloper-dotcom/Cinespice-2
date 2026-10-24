@@ -17,6 +17,7 @@ import java.io.*;
 import java.util.*;
 
 public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivity {
+    private final java.util.concurrent.ExecutorService progressWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
     private Telegram telegram;
     private Library library;
     private Video video;
@@ -27,10 +28,12 @@ public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivi
     private LinearLayout controls;
     private FrameLayout optionsOverlay;
     private int pictureChoice;
-    private TextView message, time, remaining, speedLabel, pictureLabel;
+    private TextView message, time, remaining;
     private ProgressBar spinner;
     private SeekBar seek;
-    private Button play, unlock;
+    private ImageButton play;
+    private Button unlock;
+    private VLCVideoLayout videoSurface;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile boolean released;
     private boolean locked, dragging, positioned, resumeApplied, playbackError, resumeAfterPause, foreground, landscape, edges;
@@ -52,8 +55,7 @@ public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivi
             seek.setEnabled(player.isSeekable());
             time.setText(timelineTime(position));
             remaining.setText("−" + timelineTime(Math.max(0, duration - position)));
-            speedLabel.setText(String.format(Locale.ROOT, "%g×", (double) player.getRate()));
-            play.setText(player.isPlaying() ? "Ⅱ" : "▶");
+            updatePlayIcon();
             play.setContentDescription(player.isPlaying() ? "Pause" : "Play");
             if (position != lastTime) { lastMovement = SystemClock.elapsedRealtime(); lastTime = position; }
             boolean stalled = player.isPlaying() && SystemClock.elapsedRealtime() - lastMovement >= 2000;
@@ -83,66 +85,79 @@ public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivi
         root = new FrameLayout(this); root.setBackgroundColor(android.graphics.Color.BLACK); setContentView(root);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             v.setPadding(edges ? 0 : insets.getSystemWindowInsetLeft(), edges ? 0 : insets.getSystemWindowInsetTop(), edges ? 0 : insets.getSystemWindowInsetRight(), edges ? 0 : insets.getSystemWindowInsetBottom());
+            if (controls != null) controls.setPadding(edges ? insets.getSystemWindowInsetLeft() : 0, edges ? insets.getSystemWindowInsetTop() : 0, edges ? insets.getSystemWindowInsetRight() : 0, edges ? insets.getSystemWindowInsetBottom() : 0);
             return insets.consumeSystemWindowInsets();
         }); root.requestApplyInsets();
         controls = Ui.column(this); controls.setPadding(0, 0, 0, 0); controls.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         LinearLayout top = Ui.row(this); top.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 4)); top.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xD9000000, 0xA6000000, 0x00000000}));
         top.addView(playerIcon("⌄", "Close player", 22, this::finish));
         LinearLayout title = Ui.column(this); title.setPadding(Ui.dp(this, 4), 0, 0, 0);
-        TextView name = Ui.text(this, video.name, 14, Ui.TEXT); name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)); name.setMaxLines(1); name.setEllipsize(android.text.TextUtils.TruncateAt.END); name.setPadding(0, 0, 0, 0); title.addView(name);
-        TextView brand = Ui.text(this, "CINESPICE", 9, Ui.ACCENT); brand.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)); brand.setLetterSpacing(.12f); brand.setPadding(0, Ui.dp(this, 2), 0, 0); title.addView(brand);
+        TextView name = Ui.text(this, video.displayTitle, 14, Ui.TEXT); name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)); name.setMaxLines(1); name.setEllipsize(android.text.TextUtils.TruncateAt.END); name.setPadding(0, 0, 0, 0); title.addView(name);
         top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        top.addView(playerIcon("▣", "Lock controls", 18, () -> { locked = true; controls.setVisibility(View.GONE); unlock.setVisibility(View.VISIBLE); }));
+        top.addView(playerIcon("rotate", "Rotate screen", 20, () -> { landscape = !landscape; setRequestedOrientation(landscape ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT); reveal(); }));
         controls.addView(top, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout spacer = new LinearLayout(this); controls.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout bottom = Ui.column(this); bottom.setPadding(Ui.dp(this, 12), Ui.dp(this, 22), Ui.dp(this, 12), Ui.dp(this, 8)); bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{0xF0000000, 0xD9000000, 0x00000000}));
         LinearLayout status = Ui.row(this); status.setPadding(0, 0, 0, Ui.dp(this, 2));
-        spinner = new ProgressBar(this); spinner.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT)); status.addView(spinner, new LinearLayout.LayoutParams(Ui.dp(this, 16), Ui.dp(this, 16)));
-        message = Ui.text(this, "Opening media…", 11, Ui.ACCENT); message.setPadding(Ui.dp(this, 7), 0, 0, 0); status.addView(message, new LinearLayout.LayoutParams(0, -2, 1)); bottom.addView(status);
+        spinner = new ProgressBar(this); spinner.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Ui.accent(this))); status.addView(spinner, new LinearLayout.LayoutParams(Ui.dp(this, 16), Ui.dp(this, 16)));
+        message = Ui.text(this, "Opening media…", 11, Ui.accent(this)); message.setPadding(Ui.dp(this, 7), 0, 0, 0); status.addView(message, new LinearLayout.LayoutParams(0, -2, 1)); bottom.addView(status);
         LinearLayout timeline = Ui.row(this); time = Ui.text(this, "0:00", 11, 0xFFEAE6E3); time.setTypeface(android.graphics.Typeface.MONOSPACE); time.setPadding(0, 0, Ui.dp(this, 8), 0); timeline.addView(time);
-        seek = new SeekBar(this); seek.setProgressTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT)); seek.setThumbTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT)); seek.setMax(1000); seek.setContentDescription("Video timeline"); timeline.addView(seek, new LinearLayout.LayoutParams(0, Ui.dp(this, 34), 1));
+        seek = new SeekBar(this); seek.setProgressTintList(android.content.res.ColorStateList.valueOf(Ui.accent(this))); seek.setThumbTintList(android.content.res.ColorStateList.valueOf(Ui.accent(this))); seek.setMax(1000); seek.setContentDescription("Video timeline"); timeline.addView(seek, new LinearLayout.LayoutParams(0, Ui.dp(this, 34), 1));
         remaining = Ui.text(this, "−0:00", 11, 0xFFEAE6E3); remaining.setTypeface(android.graphics.Typeface.MONOSPACE); remaining.setGravity(Gravity.RIGHT); remaining.setPadding(Ui.dp(this, 8), 0, 0, 0); timeline.addView(remaining); bottom.addView(timeline);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onStartTrackingTouch(SeekBar bar) { dragging = true; handler.removeCallbacks(hide); }
             public void onStopTrackingTouch(SeekBar bar) { if (player != null && player.isSeekable()) player.setTime(player.getLength() * bar.getProgress() / 1000); dragging = false; reveal(); }
             public void onProgressChanged(SeekBar bar, int progress, boolean user) { if (user && player != null) { long pos = player.getLength() * progress / 1000; time.setText(timelineTime(pos)); remaining.setText("−" + timelineTime(Math.max(0, player.getLength() - pos))); } }
         });
-        LinearLayout transport = Ui.row(this); transport.setGravity(Gravity.CENTER); transport.setPadding(0, Ui.dp(this, 2), 0, Ui.dp(this, 4));
-        transport.addView(playerIcon("↶10", "Back ten seconds", 17, () -> skip(-10000)));
-        play = playerIcon("Ⅱ", "Pause", 26, () -> { if (player != null) { if (player.isPlaying()) { player.pause(); save(); } else player.play(); play.setText(player.isPlaying() ? "Ⅱ" : "▶"); play.setContentDescription(player.isPlaying() ? "Pause" : "Play"); reveal(); } });
-        LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 58)); playParams.setMargins(Ui.dp(this, 16), 0, Ui.dp(this, 16), 0); transport.addView(play, playParams);
-        transport.addView(playerIcon("10↷", "Forward ten seconds", 17, () -> skip(10000))); bottom.addView(transport);
-        LinearLayout menu = Ui.row(this); menu.setGravity(Gravity.CENTER); menu.setPadding(0, Ui.dp(this, 2), 0, 0);
-        LinearLayout speedTool = playerTool("◴", "1×", "Playback speed", this::speed); speedLabel = (TextView) speedTool.getChildAt(1); menu.addView(speedTool, equalTool());
-        menu.addView(playerTool("CC", "Tracks", "Audio and subtitles", () -> tracks(true)), equalTool());
-        LinearLayout pictureTool = playerTool("▣", "Fit", "Picture options", this::picture); pictureLabel = (TextView) pictureTool.getChildAt(1); menu.addView(pictureTool, equalTool());
-        menu.addView(playerTool("↻", "Rotate", "Rotate screen", () -> { landscape = !landscape; setRequestedOrientation(landscape ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT); reveal(); }), equalTool());
-        menu.addView(playerTool("•••", "More", "More options", () -> options("More", new String[]{"Audio tracks", "Subtitles", "Download first"}, -1, index -> {
-            if (index == 0) { tracks(false); return; }
-            if (index == 1) { tracks(true); return; }
+        HorizontalScrollView strip = new HorizontalScrollView(this); strip.setHorizontalScrollBarEnabled(false); strip.setFillViewport(true);
+        LinearLayout transport = Ui.row(this); transport.setGravity(Gravity.CENTER); transport.setMinimumWidth(Ui.dp(this, 360));
+        transport.addView(playerIcon("lock", "Lock controls", 20, () -> { locked = true; controls.setVisibility(View.GONE); unlock.setVisibility(View.VISIBLE); }), controlSlot());
+        transport.addView(playerIcon("captions", "Audio and subtitles", 20, () -> tracks(true)), controlSlot());
+        transport.addView(playerIcon("back", "Back ten seconds", 22, () -> skip(-10000)), controlSlot());
+        play = playerIcon("pause", "Pause", 20, () -> { if (player != null) { if (player.isPlaying()) { player.pause(); save(); } else player.play(); updatePlayIcon(); reveal(); } });
+        GradientDrawable pill = new GradientDrawable(); pill.setColor(Ui.action(this)); pill.setCornerRadius(Ui.dp(this, 24));
+        play.setSelected(true); play.setBackground(pill); play.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.onAction(this)));
+        transport.addView(play, new LinearLayout.LayoutParams(Ui.dp(this, 72), Ui.dp(this, 48)));
+        transport.addView(playerIcon("forward", "Forward ten seconds", 22, () -> skip(10000)), controlSlot());
+        transport.addView(playerIcon("picture", "Picture options", 20, this::picture), controlSlot());
+        transport.addView(playerIcon("more", "More options", 20, () -> options("More", new String[]{"Playback speed", "Audio tracks", "Subtitles", "Download first"}, -1, index -> {
+            if (index == 0) { speed(); return; }
+            if (index == 1) { tracks(false); return; }
+            if (index == 2) { tracks(true); return; }
             if (player != null) player.pause();
             if (bridge != null) { bridge.close(); bridge = null; }
             telegram.io.execute(() -> { try { telegram.download(video); runOnUiThread(() -> { Toast.makeText(this, "Downloading. Reopen the video after download completes.", Toast.LENGTH_LONG).show(); finish(); }); } catch (Exception e) { runOnUiThread(() -> message.setText(e.getMessage())); } });
-        })), equalTool());
+        })), controlSlot());
+        strip.addView(transport, new HorizontalScrollView.LayoutParams(-1, -2)); bottom.addView(strip);
         controls.addView(bottom, new LinearLayout.LayoutParams(-1, -2));
         unlock = Ui.primary(this, "Unlock", () -> { locked = false; unlock.setVisibility(View.GONE); reveal(); }); unlock.setVisibility(View.GONE);
     }
-    private LinearLayout.LayoutParams equalTool() { return new LinearLayout.LayoutParams(0, Ui.dp(this, 52), 1); }
-    private Button playerIcon(String glyph, String description, int size, Runnable action) {
-        Button button = Ui.quiet(this, glyph, action); button.setTextSize(size); button.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)); button.setTextColor(Ui.TEXT); button.setMinHeight(Ui.dp(this, 48)); button.setMinimumHeight(Ui.dp(this, 48)); button.setPadding(0, 0, 0, 0); button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)); button.setContentDescription(description); button.setMaxLines(1); button.setGravity(Gravity.CENTER); return button;
+    private LinearLayout.LayoutParams controlSlot() { return new LinearLayout.LayoutParams(0, Ui.dp(this, 48), 1); }
+    private ImageButton playerIcon(String glyph, String description, int size, Runnable action) {
+        ImageButton button = new androidx.appcompat.widget.AppCompatImageButton(this);
+        int resource = switch (glyph) {
+            case "pause" -> R.drawable.ic_player_pause; case "back" -> R.drawable.ic_player_back;
+            case "forward" -> R.drawable.ic_player_forward; case "captions" -> R.drawable.ic_player_captions;
+            case "lock" -> R.drawable.ic_player_lock; case "rotate" -> R.drawable.ic_player_rotate;
+            case "picture" -> R.drawable.ic_player_picture; case "more" -> R.drawable.ic_player_more;
+            default -> R.drawable.ic_player_close;
+        };
+        button.setImageResource(resource); button.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.TEXT));
+        button.setBackgroundColor(android.graphics.Color.TRANSPARENT); button.setPadding(Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12));
+        button.setMinimumWidth(Ui.dp(this, 48)); button.setMinimumHeight(Ui.dp(this, 48)); button.setContentDescription(description);
+        button.setOnClickListener(v -> { action.run(); reveal(); }); return button;
     }
-    private LinearLayout playerTool(String icon, String title, String description, Runnable action) {
-        LinearLayout item = new LinearLayout(this); item.setOrientation(LinearLayout.VERTICAL); item.setGravity(Gravity.CENTER); item.setClickable(true); item.setFocusable(true); item.setContentDescription(description); item.setOnClickListener(v -> action.run());
-        TextView glyph = Ui.text(this, icon, 17, Ui.TEXT); glyph.setGravity(Gravity.CENTER); glyph.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)); glyph.setPadding(0, 0, 0, 0); item.addView(glyph, new LinearLayout.LayoutParams(-1, Ui.dp(this, 24)));
-        TextView label = Ui.text(this, title, 10, 0xFFEAE6E3); label.setGravity(Gravity.CENTER); label.setPadding(0, 0, 0, 0); label.setSingleLine(true); label.setEllipsize(android.text.TextUtils.TruncateAt.END); item.addView(label, new LinearLayout.LayoutParams(-1, Ui.dp(this, 18)));
-        return item;
+    private void updatePlayIcon() {
+        boolean playing = player != null && player.isPlaying();
+        if (play.isSelected() != playing) { play.setSelected(playing); play.setImageResource(playing ? R.drawable.ic_player_pause : R.drawable.ic_player_play); }
+        play.setContentDescription(playing ? "Pause" : "Play");
     }
     private String timelineTime(long milliseconds) { long seconds = Math.max(0, milliseconds / 1000); return seconds >= 3600 ? String.format(Locale.ROOT, "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60) : String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60); }
     private void start() throws Exception {
         ArrayList<String> options = new ArrayList<>(List.of("--network-caching=1500", "--no-video-title-show", "--freetype-rel-fontsize=" + getPreferences(0).getInt("subtitleSize", 16)));
         vlc = new LibVLC(this, options); player = new MediaPlayer(vlc);
-        VLCVideoLayout surface = new VLCVideoLayout(this); root.addView(surface, 0, new FrameLayout.LayoutParams(-1, -1));
-        player.attachViews(surface, null, true, false);
+        videoSurface = new VLCVideoLayout(this); root.addView(videoSurface, 0, new FrameLayout.LayoutParams(-1, -1));
+        player.attachViews(videoSurface, null, true, false);
         View gestures = new View(this); root.addView(gestures, new FrameLayout.LayoutParams(-1, -1));
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onDown(MotionEvent event) { return true; }
@@ -184,7 +199,11 @@ public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivi
     private void reveal() { if (locked) return; controls.setVisibility(View.VISIBLE); handler.removeCallbacks(hide); handler.postDelayed(hide, 4500); }
     private void skip(long delta) { if (player != null && player.isSeekable()) { player.setTime(Math.max(0, Math.min(player.getLength(), player.getTime() + delta))); reveal(); } }
     private void save() {
-        if (player != null && positioned && player.getTime() >= 0 && library != null) library.progress(video, player.getTime(), player.getLength(), false);
+        if (player != null && positioned && player.getTime() >= 0 && library != null && !progressWriter.isShutdown()) {
+            long position = player.getTime(), duration = player.getLength();
+            Library target = library; Video media = video;
+            progressWriter.execute(() -> target.progress(media, position, duration, false));
+        }
         lastSaved = SystemClock.elapsedRealtime();
     }
     private void tracks(boolean subtitles) {
@@ -230,7 +249,7 @@ public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivi
     }
     private void picture() {
         options("Picture", new String[]{"Fit", "Fill / crop", "16:9", "4:3", "21:9", edges ? "Respect screen edges" : "Use screen edges"}, pictureChoice, index -> {
-            if (index < 5) { pictureChoice = index; pictureLabel.setText(new String[]{"Fit", "Fill", "16:9", "4:3", "21:9"}[index]); }
+            if (index < 5) { pictureChoice = index; }
             if (index == 5) { edges = !edges; getWindow().getDecorView().setSystemUiVisibility(edges ? View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY : View.SYSTEM_UI_FLAG_VISIBLE); root.requestApplyInsets(); }
             else if (index == 4) { player.setVideoScale(MediaPlayer.ScaleType.SURFACE_BEST_FIT); player.setAspectRatio("21:9"); }
             else { player.setAspectRatio(null); player.setVideoScale(new MediaPlayer.ScaleType[]{MediaPlayer.ScaleType.SURFACE_BEST_FIT, MediaPlayer.ScaleType.SURFACE_FILL, MediaPlayer.ScaleType.SURFACE_16_9, MediaPlayer.ScaleType.SURFACE_4_3}[index]); }
@@ -242,7 +261,7 @@ public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivi
         for (int i = 0; i < labels.length; i++) {
             final int index = i;
             Button choice = Ui.quiet(this, (i == selected ? "✓ " : "") + labels[i], () -> { closeOptions(); action.accept(index); });
-            choice.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); choice.setTextColor(i == selected ? 0xFFFF774A : Ui.TEXT);
+            choice.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); choice.setTextColor(i == selected ? Ui.accent(this) : Ui.TEXT);
             content.addView(choice, new LinearLayout.LayoutParams(-1, -2));
         }
         panel(title, content);
@@ -254,7 +273,7 @@ public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivi
         LinearLayout panel = Ui.column(this); panel.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 12));
         panel.setOnClickListener(v -> { });
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(0xFF141414); background.setCornerRadius(Ui.dp(this, 16)); background.setStroke(Ui.dp(this, 1), 0xFFFF774A); panel.setBackground(background);
+        background.setColor(Ui.panel(this)); background.setCornerRadius(Ui.dp(this, 16)); background.setStroke(Ui.dp(this, 1), Ui.accent(this)); panel.setBackground(background);
         LinearLayout heading = Ui.row(this); TextView label = Ui.text(this, title, 16, Ui.TEXT); Ui.weighted(heading, label);
         Button close = Ui.quiet(this, "×", this::closeOptions); close.setContentDescription("Close player options"); heading.addView(close); panel.addView(heading);
         final int maximum = (int) (getResources().getDisplayMetrics().heightPixels * (landscape ? .60f : .32f));
@@ -298,7 +317,7 @@ public final class PlayerActivity extends androidx.appcompat.app.AppCompatActivi
     @Override protected void onPause() { foreground = false; if (player != null && !released) { resumeAfterPause = player.isPlaying(); player.pause(); save(); } super.onPause(); }
     @Override protected void onResume() { super.onResume(); foreground = true; if (player != null && resumeAfterPause && !released) { resumeAfterPause = false; player.play(); } }
     @Override protected void onDestroy() {
-        released = true; handler.removeCallbacksAndMessages(null); save();
+        released = true; handler.removeCallbacksAndMessages(null); save(); progressWriter.shutdown();
         if (bridge != null) bridge.close();
         if (player != null) { player.setEventListener(null); player.stop(); player.detachViews(); player.release(); }
         if (vlc != null) vlc.release();

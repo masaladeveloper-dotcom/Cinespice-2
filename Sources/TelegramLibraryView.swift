@@ -32,6 +32,7 @@ struct TelegramLibraryView: View {
     private enum LoginField: Hashable { case country, phone, code, password, email, emailCode, search }
     private var layout: CinespiceLayout { CinespiceLayout(width: min(viewport.width, CinespiceLayout.maximumWidth)) }
     @State private var detailsVideo: TelegramVideo?
+    @State private var playAfterDetails: TelegramVideo?
     @State private var query = ""
     @State private var exportFile: VideoExport?
     @State private var exportDirectory: URL?
@@ -79,7 +80,11 @@ struct TelegramLibraryView: View {
                 }
                 exportDirectory = nil
             }) { file in VideoExportPicker(file: file) { exportFile = nil } }
-            .sheet(item: $detailsVideo) { VideoDetailsView(video: $0) }
+            .sheet(item: $detailsVideo, onDismiss: {
+                if let video = playAfterDetails { playAfterDetails = nil; play(video) }
+            }) { video in
+                VideoDetailsView(play: { playAfterDetails = video; detailsVideo = nil }, video: video)
+            }
             .sheet(isPresented: $showSettings) { LibrarySettingsView() }
             .fullScreenCover(item: $selection) { item in
                 VLCPlaybackView(selection: item, library: library) { selection = nil }
@@ -94,7 +99,7 @@ struct TelegramLibraryView: View {
                 if stage != .ready {
                     cancelOpening()
                     showCollections = false; showSettings = false
-                    lastSearchVideo = nil; tab = 0; savedList = "New Releases"; selection = nil; exportFile = nil; collection = nil; detailsVideo = nil; query = ""; rangeServer.stop()
+                    playAfterDetails = nil; lastSearchVideo = nil; tab = 0; savedList = "New Releases"; selection = nil; exportFile = nil; collection = nil; detailsVideo = nil; query = ""; rangeServer.stop()
                 }
             }
         }

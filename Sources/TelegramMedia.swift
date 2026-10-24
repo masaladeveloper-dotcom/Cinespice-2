@@ -157,6 +157,7 @@ struct WatchProgress: Codable, Equatable, Sendable {
 }
 
 struct LibrarySnapshot: Sendable {
+    var browsing = LibraryBrowsing()
     var savedLists: [String: Set<String>] = [:]
     var revision: Int = 0
     var videos: [TelegramVideo] = []
@@ -166,7 +167,7 @@ struct LibrarySnapshot: Sendable {
     var indexes: [Int64: CollectionIndex] = [:]
 }
 
-struct LocalFileStatus: Sendable {
+struct LocalFileStatus: Sendable, Equatable {
     let id: Int32
     let size: Int64
     let path: String

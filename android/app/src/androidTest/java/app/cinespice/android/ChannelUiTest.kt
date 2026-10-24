@@ -27,8 +27,8 @@ class ChannelUiTest {
     @Before fun setup() {
         telegram = (context.applicationContext as CinespiceApp).telegram
         originalStage = telegram.stage; originalLibrary = telegram.library
-        previousTheme = context.getSharedPreferences("cinespice", 0).getString("cinespice.theme", "Ember")
-        context.getSharedPreferences("cinespice", 0).edit().putString("cinespice.theme", "Ember").commit()
+        previousTheme = context.getSharedPreferences("cinespice", 0).getString("cinespice.theme", "Crimson Cinema")
+        context.getSharedPreferences("cinespice", 0).edit().putString("cinespice.theme", "Crimson Cinema").commit()
         context.deleteDatabase("library_-95.db"); context.deleteDatabase("saved_-95.db")
         telegram.stage = "ready"; telegram.library = Library(context, -95)
         telegram.library!!.chat(-101, "Cinema archive", true, 1); telegram.library!!.select(-101, true)
@@ -41,6 +41,10 @@ class ChannelUiTest {
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)
         compose.waitForIdle()
+        awaitModel { it.videos.size == 12 }
+    }
+    private fun awaitModel(predicate: (LibraryModel) -> Boolean) {
+        compose.waitUntil(10000) { var ready = false; scenario.onActivity { ready = predicate(it.model) }; ready }
     }
     @After fun cleanup() {
         scenario.close(); telegram.stage = originalStage; telegram.library = originalLibrary
@@ -53,17 +57,18 @@ class ChannelUiTest {
         File(context.getExternalFilesDir(null), "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
     }
     @Test fun favoritesWatchlistAndSelectionAreIndependent() {
-        scenario.onActivity { activity ->
-            val video = activity.model.videos.first()
-            activity.model.toggle(video, "Favorites"); activity.model.toggle(video, "Watchlist")
-            assertEquals(1, activity.model.favorites.size); assertEquals(1, activity.model.watchlist.size)
-            activity.model.select(activity.model.channels.first { it.id() == -101L }); assertTrue(activity.model.videos.isEmpty())
-            activity.model.select(activity.model.channels.first { it.id() == -101L }); assertEquals(12, activity.model.videos.size)
-            assertEquals(1, activity.model.favorites.size); activity.model.navigate("favorites")
-        }
-        compose.onNodeWithText("Saved for later").assertIsDisplayed()
+        scenario.onActivity { it.model.toggle(it.model.videos.first(), "Favorites") }
+        awaitModel { it.favorites.size == 1 }
+        scenario.onActivity { it.model.toggle(it.model.videos.first(), "Watchlist") }
+        awaitModel { it.watchlist.size == 1 }
+        scenario.onActivity { it.model.select(it.model.channels.first { c -> c.id() == -101L }) }
+        awaitModel { it.videos.isEmpty() }
+        scenario.onActivity { it.model.select(it.model.channels.first { c -> c.id() == -101L }) }
+        awaitModel { it.videos.size == 12 }
+        scenario.onActivity { assertEquals(1, it.model.favorites.size); it.model.navigate("library") }
+        compose.onNodeWithText("Library").assertIsDisplayed()
         compose.onNodeWithText("Watchlist", useUnmergedTree = true).performClick()
-        scenario.recreate(); compose.onNodeWithText("Saved for later").assertIsDisplayed()
+        scenario.recreate(); awaitModel { it.videos.size == 12 }; compose.onNodeWithText("Library").assertIsDisplayed()
         screenshot("compose-favorites")
         scenario.onActivity { assertEquals("Watchlist", it.model.savedList); assertEquals(1, it.model.watchlist.size) }
     }
@@ -73,6 +78,7 @@ class ChannelUiTest {
         scenario.onActivity { activity ->
             telegram.library!!.chat(-104, "Cinema discoveries", false, 4); activity.model.reload()
         }
+        awaitModel { it.channels.any { c -> c.id() == -104L } }
         compose.onNodeWithText("Search channels and groups").assertIsFocused()
         compose.onNodeWithText("Cinema discoveries").assertIsDisplayed()
         compose.onNodeWithText("Documentary club").assertDoesNotExist()
@@ -94,23 +100,23 @@ class ChannelUiTest {
         compose.onNodeWithTag("library-grid").performScrollToIndex(1)
         compose.onNodeWithText("Search your selected channels").assertIsDisplayed()
         compose.onNodeWithContentDescription("Profile").performClick()
-        scenario.onActivity { it.model.theme("Pearl") }
+        scenario.onActivity { it.model.theme("Cinespice Glass") }
         compose.onNodeWithText("Your space").assertIsDisplayed(); screenshot("compose-pearl-profile")
-        scenario.recreate(); scenario.onActivity { assertEquals("Pearl", it.model.palette); it.model.navigate("home") }
-        compose.onNodeWithContentDescription("Hero 1 of 7: JUST ADDED").assertIsDisplayed(); screenshot("compose-pearl-home")
-        scenario.onActivity { it.model.theme("Midnight") }; screenshot("compose-midnight-home")
-        scenario.onActivity { it.model.theme("Sage") }; screenshot("compose-sage-home")
-        scenario.onActivity { it.model.theme("Ember") }; screenshot("compose-ember-home")
-        val roles = listOf("JUST ADDED", "TODAY'S PICK", "TRENDING FILMS", "POPULAR THIS WEEK", "DISCOVER SOMETHING NEW", "FROM THE CATALOGUE", "YOUR LAST SEARCH")
+        scenario.recreate(); scenario.onActivity { assertEquals("Cinespice Glass", it.model.palette); it.model.navigate("home") }
+        compose.onNodeWithContentDescription("Hero 1 of 7: Recently added").assertIsDisplayed(); screenshot("compose-pearl-home")
+        scenario.onActivity { it.model.theme("Silver Screen") }; screenshot("compose-midnight-home")
+        scenario.onActivity { it.model.theme("Cinespice Dark") }; screenshot("compose-sage-home")
+        scenario.onActivity { it.model.theme("Crimson Cinema") }; screenshot("compose-ember-home")
+        val roles = listOf("Recently added", "Today's pick", "Trending · 1", "Trending · 2", "Trending · 3", "Trending · 4", "Last searched")
         for (index in 0..5) {
             compose.onNodeWithContentDescription("Hero ${index+1} of 7: ${roles[index]}").performTouchInput { swipeLeft() }
             compose.onNodeWithContentDescription("Hero ${index+2} of 7: ${roles[index+1]}").assertIsDisplayed()
         }
-        compose.onNodeWithTag("library-grid").performScrollToIndex(8)
-        compose.onNodeWithContentDescription("History tab").performClick()
-        compose.onNodeWithText("Recently watched").assertIsDisplayed()
+        compose.onNodeWithTag("library-grid").performScrollToIndex(0)
+        compose.onNodeWithContentDescription("Library tab").performClick()
+        compose.onNodeWithText("History", useUnmergedTree = true).performClick()
         compose.onNodeWithContentDescription("Home tab").performClick()
-        compose.onNodeWithContentDescription("Hero 1 of 7: JUST ADDED").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Hero 1 of 7: Recently added").assertIsDisplayed()
     }
     @Test fun savedMembershipPersistsAcrossDatabaseReopenAndAccountsStayIsolated() {
         val video = Video(Json.obj("chatId", -101, "messageId", 1, "name", "Film.mp4"))

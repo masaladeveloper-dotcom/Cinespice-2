@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
 /// All surfaces use one palette. Legacy saved names resolve without losing a preference.
 enum CinespiceTheme: String, CaseIterable, Identifiable {
@@ -25,9 +26,9 @@ enum CinespiceTheme: String, CaseIterable, Identifiable {
     var scheme: ColorScheme { self == .glass ? .light : .dark }
     private var palette: (background: Int, surface: Int, text: Int, muted: Int, accent: Int, action: Int) {
         switch self {
-        case .glass: return (0xF8F6F4, 0xFFFFFF, 0x171518, 0x68616A, 0xCC182A, 0xCC182A)
-        case .dark: return (0x0B0B0F, 0x1C1C22, 0xF8F6F4, 0xB5AFB9, 0xFF6975, 0xB6111B)
-        case .crimson: return (0x1B0D14, 0x311D27, 0xFBF3EC, 0xC5ADB6, 0xF3929E, 0xA32C44)
+        case .glass: return (0xF8F6F4, 0xFFFFFF, 0x171518, 0x68616A, 0xD11325, 0xE11D2E)
+        case .dark: return (0x0B0B0F, 0x1C1C22, 0xF8F6F4, 0xB5AFB9, 0xFF3340, 0xE11D2E)
+        case .crimson: return (0x1B0D14, 0x311D27, 0xFBF3EC, 0xC5ADB6, 0xE85A64, 0xA32C44)
         case .silver: return (0x14171C, 0x272C34, 0xF5F7FA, 0xB4BDC9, 0xD6DDE7, 0xD6DDE7)
         }
     }
@@ -38,6 +39,8 @@ enum CinespiceTheme: String, CaseIterable, Identifiable {
     var accent: Color { color(palette.accent) }
     var action: Color { color(palette.action) }
     var onAction: Color { self == .silver ? color(0x14171C) : .white }
+    var playerAccent: Color { self == .glass ? CinespiceTheme.dark.accent : accent }
+    var playerAction: Color { self == .glass ? CinespiceTheme.dark.action : action }
     var separator: Color { muted.opacity(0.25) }
     private func color(_ value: Int) -> Color {
         return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
@@ -138,13 +141,26 @@ struct VideoArtwork: View {
             do {
                 guard let data = try await telegram.thumbnail(video) else { return }
                 try Task.checkCancellation()
-                guard let decoded = UIImage(data: data) else { failed = true; return }
+                let decoded = await Task.detached(priority: .utility) { Self.decodeArtwork(data) }.value
+                try Task.checkCancellation()
+                guard let decoded else { failed = true; return }
                 image = decoded
                 Self.memory.setObject(decoded, forKey: key, cost: decoded.cgImage.map { $0.bytesPerRow * $0.height } ?? data.count * 4)
             } catch is CancellationError { }
             catch { failed = true }
         }
     }
+    nonisolated private static func decodeArtwork(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1024,
+                kCGImageSourceShouldCacheImmediately: true
+              ] as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
 }
 
 struct VideoCard: View {
@@ -292,6 +308,9 @@ struct LibraryEmptyState: View {
 }
 
 struct VideoDetailsView: View {
+    @EnvironmentObject private var library: LibraryStore
+    @State private var saving = false
+    let play: () -> Void
     @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -303,6 +322,13 @@ struct VideoDetailsView: View {
                     VideoArtwork(video: video, contentMode: .fit)
                         .aspectRatio(16 / 9, contentMode: .fit)
                         .clipShape(RoundedRectangle(cornerRadius: 20))
+                    HStack(spacing: 12) {
+                        Button(action: play) { MediaPlayPill(progress: library.snapshot.history[video.id]?.fraction) }
+                            .accessibilityLabel("Play " + video.displayTitle)
+                        savedButton("Favorites", symbol: "heart", selectedSymbol: "heart.fill")
+                        savedButton("Watchlist", symbol: "plus", selectedSymbol: "checkmark")
+                        Spacer(minLength: 0)
+                    }.buttonStyle(.plain)
                     VStack(alignment: .leading, spacing: 12) {
                         Text("About this video").font(.headline)
                         Text(video.fileName ?? video.title).font(.body).textSelection(.enabled)
@@ -323,6 +349,22 @@ struct VideoDetailsView: View {
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } } }
         }.navigationViewStyle(.stack).preferredColorScheme(theme.scheme)
             .foregroundStyle(theme.text).tint(theme.accent).presentationDragIndicator(.visible)
+    }
+    private func savedButton(_ list: String, symbol: String, selectedSymbol: String) -> some View {
+        let selected = library.snapshot.savedLists[list]?.contains(video.id) == true
+        return Button {
+            guard !saving else { return }; saving = true
+            Task {
+                _ = await library.setSaved(video, list: list, saved: !selected)
+                saving = false
+            }
+        } label: {
+            Image(systemName: selected ? selectedSymbol : symbol).font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(selected ? theme.accent : theme.text)
+                .frame(width: 36, height: 36).background(theme.text.opacity(0.08), in: Circle())
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }.disabled(saving).accessibilityLabel((selected ? "Remove from " : "Add to ") + list)
+            .accessibilityValue(selected ? "Saved" : "Not saved")
     }
     private func detailRow(_ title: String, value: String) -> some View {
         let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 12))

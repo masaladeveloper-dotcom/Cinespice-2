@@ -130,7 +130,7 @@ TDLib's MTProto transport with no application HTTP endpoint override.
 ## October 2026 Compose redesign (1.2.0)
 
 Implements [UI specification](../docs/UI-README.md) and
-[Android translation](../docs/ANDROID-UI.md): opaque Ember/Midnight/Pearl/Sage
+[Android translation](../docs/ANDROID-UI.md): opaque Cinespice Glass/Cinespice Dark/Crimson Cinema/Silver Screen
 palettes, compact header, five destinations, adaptive grid/rail, seven manual
 hero positions, Continue Watching, Favorites/Watchlist, sorting, and compact dark
 VLC options. Catalogue slots explicitly say the catalogue is not connected.
@@ -156,3 +156,23 @@ Automated UI checks use the debug variant (`:app:connectedDebugAndroidTest`);
 optimized native/playback checks can use `-PdeviceTestBuildType=optimized`.
 Physical tablet/foldable/cutout/TalkBack coverage and live Telegram streaming
 remain device acceptance work; emulator results do not establish those behaviors.
+
+### Current UI and build configuration
+
+The four themes now match iOS: Cinespice Glass, Cinespice Dark (default), Crimson
+Cinema and Silver Screen. Navigation is Home, Search, Library and Downloads;
+Library includes New Releases, Favorites, Watchlist and History. Channel rows
+contain up to 15 portrait posters. Details offers Play, Heart and Plus and retains
+the original filename. The player uses the existing VLC engine with native icon
+controls; Play/Pause has no waveform.
+
+Builds require `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` (the same GitHub secrets
+as iOS). For local builds, an ignored `android/telegram-config.local.json` file
+can provide `apiID` and `apiHash`; `CINESPICE_TELEGRAM_CONFIG` can point to a private
+file elsewhere. The Gradle build rejects invalid IDs/hashes. Credentials are
+packaged into the application; account sessions remain device-local. Login no
+longer asks users to supply API credentials.
+
+Library reads and derived home rows run on the IO dispatcher; player progress
+writes use a serial background executor. Optimized builds retain R8, resource
+shrinking and one APK per ABI. No additional UI framework was added.

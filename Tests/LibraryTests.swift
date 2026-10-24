@@ -229,3 +229,40 @@ final class SavedListAndSortTests: XCTestCase {
         XCTAssertEqual(LibraryOrder.titleAscending.sort([a, a2]).map(\.messageID), [3, 1])
     }
 }
+
+final class LibraryFileUpdateTests: XCTestCase {
+    func testBrowsingUsesSelectedVideoCollectionsAndPreservesResumeOrdering() {
+        var snapshot = LibrarySnapshot()
+        snapshot.collections = [TelegramChat(id: 1, title: "Films", type: "chatTypeSupergroup"), TelegramChat(id: 2, title: "Other", type: "chatTypeSupergroup")]
+        snapshot.selected = [1]
+        let first = TelegramVideo(messageID: 1, chatID: 1, fileID: 1, title: "Film.mkv", size: 100, mimeType: "video/mp4", duration: 120, localPath: "", downloadedBytes: 0, isDownloaded: false, date: 10)
+        let second = TelegramVideo(messageID: 2, chatID: 1, fileID: 2, title: "New.mkv", size: 100, mimeType: "video/mp4", duration: 120, localPath: "", downloadedBytes: 0, isDownloaded: false, date: 20)
+        var hidden = first; hidden = TelegramVideo(messageID: 3, chatID: 2, fileID: 3, title: "Hidden", size: 100, mimeType: "video/mp4", duration: 120, localPath: "", downloadedBytes: 0, isDownloaded: false)
+        snapshot.videos = [first, hidden, second]
+        snapshot.history[first.id] = WatchProgress(videoID: first.id, position: 30, duration: 120)
+        let browsing = LibraryBrowsing(snapshot: snapshot)
+        XCTAssertEqual(browsing.videos.map(\.id), [second.id, first.id])
+        XCTAssertEqual(browsing.continuing.map(\.id), [first.id])
+        XCTAssertEqual(browsing.collections.map(\.id), [1])
+        XCTAssertEqual(browsing.fileIDs, [1, 2, 3])
+    }
+    func testProgressCoalescesAndIgnoresArtworkAndDuplicates() throws {
+        var updates = LibraryFileUpdates()
+        func status(_ id: Int32, _ bytes: Int64, complete: Bool = false) throws -> LocalFileStatus {
+            try XCTUnwrap(LocalFileStatus(["id": id, "size": Int64(1000), "local": ["downloaded_size": bytes, "is_downloading_completed": complete]]))
+        }
+        XCTAssertFalse(updates.receive(try status(99, 1000, complete: true), knownFiles: [1]))
+        XCTAssertFalse(updates.hasPending)
+        for bytes in 0..<1000 { XCTAssertFalse(updates.receive(try status(1, Int64(bytes)), knownFiles: [1])) }
+        let batch = updates.drain()
+        XCTAssertEqual(batch.count, 1)
+        XCTAssertEqual(batch[1]?.downloaded, 999)
+        XCTAssertFalse(updates.hasPending)
+        XCTAssertTrue(updates.receive(try status(1, 1000, complete: true), knownFiles: [1]))
+        _ = updates.drain()
+        XCTAssertFalse(updates.receive(try status(1, 1000, complete: true), knownFiles: [1]))
+        XCTAssertFalse(updates.hasPending)
+        updates = LibraryFileUpdates()
+        XCTAssertTrue(updates.latest.isEmpty)
+    }
+}

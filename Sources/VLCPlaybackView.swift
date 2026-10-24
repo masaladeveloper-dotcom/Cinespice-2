@@ -27,7 +27,7 @@ struct VLCPlaybackView: View {
     @State private var message = ""
     @State private var suspended = false
     private let onClose: () -> Void
-    private var spice: Color { theme == .glass ? CinespiceTheme.dark.accent : theme.accent }
+    private var spice: Color { theme.playerAccent }
 
     init(selection: PlaybackSelection, library: LibraryStore, onClose: @escaping () -> Void) {
         self.onClose = onClose
@@ -196,11 +196,8 @@ struct VLCPlaybackView: View {
                     Image(systemName: "gobackward.10").frame(width: slot, height: 48)
                 }.disabled(!playback.seekable).accessibilityLabel("Back ten seconds")
                 Button { playback.toggle(); feedback(playback.showsPause ? "Resuming…" : "Paused") } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: playback.showsPause ? "pause.fill" : "play.fill")
-                        playingIndicator
-                    }.font(.system(size: 16, weight: .semibold)).frame(width: 72, height: 38)
-                        .background(spice, in: Capsule()).foregroundStyle(CinespiceTheme.dark.onAction)
+                    Image(systemName: playback.showsPause ? "pause.fill" : "play.fill").font(.system(size: 16, weight: .semibold)).frame(width: 72, height: 38)
+                        .background(theme.playerAction, in: Capsule()).foregroundStyle(theme.onAction)
                         .frame(height: 48).contentShape(Rectangle())
                 }.accessibilityLabel(playback.showsPause ? "Pause" : "Play")
                 Button { playback.seek(10); feedback("+10 seconds") } label: {
@@ -209,15 +206,6 @@ struct VLCPlaybackView: View {
                 pictureTool.frame(width: slot)
                 moreTool.frame(width: slot)
             }.font(.system(size: 21, weight: .medium))
-        }
-    }
-    @ViewBuilder private var playingIndicator: some View {
-        if #available(iOS 17.0, *) {
-            Image(systemName: "waveform").font(.system(size: 13))
-                .symbolEffect(.variableColor.iterative, options: .repeating, isActive: playback.state == .playing && !reduceMotion)
-                .accessibilityHidden(true)
-        } else {
-            Image(systemName: "waveform").font(.system(size: 13)).accessibilityHidden(true)
         }
     }
     private var timeline: some View {
@@ -343,7 +331,10 @@ struct VLCPlaybackView: View {
 
 private struct VideoEdges: ViewModifier {
     let expanded: Bool
-    @ViewBuilder func body(content: Content) -> some View { if expanded { content.ignoresSafeArea() } else { content } }
+    // Keep one representable/drawable alive while only its safe-area edges change.
+    func body(content: Content) -> some View {
+        content.ignoresSafeArea(.container, edges: expanded ? .all : [])
+    }
 }
 private struct VLCVideoSurface: UIViewRepresentable {
     let player: VLCMediaPlayer
