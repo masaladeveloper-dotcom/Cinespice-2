@@ -20,6 +20,7 @@ android {
     }
     compileOptions { coreLibraryDesugaringEnabled true; sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     buildFeatures { compose true }
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir("generated/telegramAssets"))
     kotlinOptions { jvmTarget = '17' }
     buildTypes {
         release {
@@ -78,3 +79,23 @@ tasks.register('verifyTdlib') {
     }
 }
 tasks.named('preBuild').configure { dependsOn 'verifyTdlib' }
+
+// Same Telegram application identity as the iOS build; never prompt for API keys.
+tasks.register('configureTelegram') {
+    def destination = layout.buildDirectory.file('generated/telegramAssets/telegram-build-credentials.json')
+    outputs.file(destination)
+    outputs.upToDateWhen { false }
+    doLast {
+        def local = new File(System.getenv('CINESPICE_TELEGRAM_CONFIG') ?: rootProject.file('telegram-config.local.json').path)
+        def saved = local.isFile() ? new groovy.json.JsonSlurper().parse(local) : [:]
+        def id = (System.getenv('TELEGRAM_API_ID') ?: saved.apiID ?: '').toString().trim()
+        def hash = (System.getenv('TELEGRAM_API_HASH') ?: saved.apiHash ?: '').toString().trim()
+        if (!(id ==~ /[1-9][0-9]{0,9}/) || new BigInteger(id) <= 0 || new BigInteger(id) > 2147483647)
+            throw new GradleException('Configure a valid TELEGRAM_API_ID for this build.')
+        if (!(hash ==~ /[a-fA-F0-9]{32}/)) throw new GradleException('Configure a valid TELEGRAM_API_HASH for this build.')
+        def output = destination.get().asFile
+        output.parentFile.mkdirs()
+        output.text = groovy.json.JsonOutput.toJson([apiID: id, apiHash: hash])
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'configureTelegram' }

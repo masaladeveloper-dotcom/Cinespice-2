@@ -14,14 +14,14 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
     internal val telegram = (application as CinespiceApp).telegram
     private val preferences = application.getSharedPreferences("cinespice", 0)
     var stage by mutableStateOf(telegram.stage); private set
-    var page by mutableStateOf((saved.get<String>("page") ?: "home").let { if (it == "channels") "home" else it }); private set
+    var page by mutableStateOf((saved.get<String>("page") ?: "home").let { when (it) { "channels" -> "home"; "favorites", "history" -> "library"; else -> it } }); private set
     var chat by mutableLongStateOf(saved.get<Long>("chat") ?: 0); private set
     var chatTitle by mutableStateOf(saved.get<String>("chatTitle") ?: ""); private set
     var query by mutableStateOf(saved.get<String>("query") ?: ""); private set
     var collectionQuery by mutableStateOf(saved.get<String>("collectionQuery") ?: ""); private set
     var channelQuery by mutableStateOf(saved.get<String>("channelQuery") ?: ""); private set
-    var savedList by mutableStateOf(saved.get<String>("savedList") ?: "Favorites"); private set
-    var palette by mutableStateOf(preferences.getString("cinespice.theme", "Ember")!!); private set
+    var savedList by mutableStateOf(saved.get<String>("savedList") ?: "New Releases"); private set
+    var palette by mutableStateOf(canonicalTheme(preferences.getString("cinespice.theme", "Cinespice Dark")!!)); private set
     var sort by mutableIntStateOf(preferences.getInt("sort", 0)); private set
     var channelsVisible by mutableStateOf(false); private set
     var status by mutableStateOf(""); private set
@@ -48,6 +48,13 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
     var account by mutableLongStateOf(-1); private set
     var day by mutableLongStateOf(System.currentTimeMillis() / 86_400_000); private set
     private var store: SavedStore? = null
+    private var reloadJob: Job? = null
+    private var downloadTick: Job? = null
+    private var reloadEpoch = 0L
+    private val launchSeed = java.util.UUID.randomUUID().toString()
+    internal var homeRails by mutableStateOf<Map<Long, List<Video>>>(emptyMap()); private set
+    internal var positions by mutableStateOf<Map<String, Long>>(emptyMap()); private set
+    private data class LibraryRows(val channels: List<Library.Chat>, val videos: List<Video>, val history: List<Video>, val continuing: List<Video>, val favorites: Set<String>, val watchlist: Set<String>, val downloads: Map<String, String>, val rails: Map<Long, List<Video>>, val positions: Map<String, Long>)
     internal var artwork: Artwork? = null; private set
     private var scan: Job? = null
     private var channelSearchJob: Job? = null
@@ -74,39 +81,69 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
             store = SavedStore.open(getApplication(), account)
             artwork = Artwork(telegram, File(getApplication<Application>().cacheDir, "artwork_$account"))
             discoveryMore = true; lastSearch = null; collectionSearchResults = emptyList(); collectionSearchError = ""
-            reload(); reconcileDownloads()
-            if (page == "search" && query.isNotBlank()) search(query)
+            reload { reconcileDownloads() }
         } else if (stage != "ready" && account != -1L) {
             scan?.cancel(); queryJob?.cancel(); collectionQueryJob?.cancel(); store?.close(); store = null; artwork?.close(); artwork = null
-            account = -1; videos = emptyList(); history = emptyList(); continuing = emptyList(); channels = emptyList()
+            reloadEpoch++; reloadJob?.cancel(); homeRails = emptyMap(); positions = emptyMap(); account = -1; videos = emptyList(); history = emptyList(); continuing = emptyList(); channels = emptyList()
             favorites = emptySet(); watchlist = emptySet(); downloadStates = emptyMap(); lastSearch = null
             channelsVisible = false; navigate("home"); searchResults = emptyList(); collectionSearchResults = emptyList(); preparing = emptySet()
         }
         if (telegram.error.isNotEmpty()) status = telegram.error
     }
     fun foreground() { day = System.currentTimeMillis() / 86_400_000; if (stage == "ready") reload() }
-    internal fun reload() {
+    internal fun reload(onLoaded: (() -> Unit)? = null) {
         if (stage != "ready") return
         val library = telegram.requireLibrary()
-        channels = library.chats(false); videos = library.videos(0, "", false, 10000)
-        history = library.recentHistory(5); continuing = library.videos(0, "", true, 12)
-        favorites = store?.entries()?.members("Favorites")?.toSet() ?: emptySet()
-        watchlist = store?.entries()?.members("Watchlist")?.toSet() ?: emptySet()
-        downloadStates = store?.entries()?.downloads()?.associate { it.id to it.state } ?: emptyMap()
-        val selectedIds = channels.filter { it.selected() }.map { it.id() }.toSet()
-        searchResults = searchResults.filter { it.chatId in selectedIds }
-        if (lastSearch?.let { v -> channels.none { it.id() == v.chatId && it.selected() } } == true) lastSearch = null
+        val entries = store?.entries()
+        val owner = account
+        val token = ++reloadEpoch
+        reloadJob?.cancel()
+        reloadJob = viewModelScope.launch {
+            try {
+                val rows = withContext(Dispatchers.IO) {
+                    val sources = library.chats(false)
+                    val media = library.videos(0, "", false, 10000)
+                    val recent = library.recentHistory(5)
+                    val resume = library.videos(0, "", true, 12)
+                    LibraryRows(sources, media, recent, resume,
+                        entries?.members("Favorites")?.toSet().orEmpty(), entries?.members("Watchlist")?.toSet().orEmpty(),
+                        entries?.downloads()?.associate { it.id to it.state }.orEmpty(),
+                        media.groupBy { it.chatId }.mapValues { (_, titles) -> titles.sortedWith(compareBy<Video> { (launchSeed + it.key()).hashCode() }.thenBy { it.key() }).take(15) },
+                        resume.associate { it.key() to library.position(it.key()) })
+                }
+                if (owner != account || token != reloadEpoch || stage != "ready") return@launch
+                channels = rows.channels; videos = rows.videos; history = rows.history; continuing = rows.continuing
+                favorites = rows.favorites; watchlist = rows.watchlist; downloadStates = rows.downloads
+                homeRails = rows.rails; positions = rows.positions
+                val selected = rows.channels.filter { it.selected() }.map { it.id() }.toSet()
+                searchResults = searchResults.filter { it.chatId in selected }
+                if (lastSearch?.chatId !in selected) lastSearch = null
+                onLoaded?.invoke()
+                if (page == "search" && query.isNotBlank() && session == null && !searching) search(query)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (owner == account && token == reloadEpoch) status = e.message ?: "Could not load your library." }
+        }
     }
     fun tick() {
-        if (stage != "ready") return
-        var modified = false
-        videos.forEach { v ->
-            val state = downloadStates[SavedStore.id(v)]
-            if (state == "Downloading" && telegram.completedPath(v).isNotEmpty()) {
-                store?.entries()?.putDownload(SavedStore.Download(SavedStore.id(v), "Downloaded")); modified = true
-            }
+        if (stage != "ready" || downloadTick?.isActive == true) return
+        val pending = videos.filter { downloadStates[SavedStore.id(it)] == "Downloading" }
+        if (pending.isEmpty()) return
+        val owner = account; val entries = store?.entries() ?: return
+        downloadTick = viewModelScope.launch {
+            try {
+                val modified = withContext(Dispatchers.IO) {
+                    var changed = false
+                    pending.forEach { video ->
+                        if (telegram.completedPath(video).isNotEmpty()) {
+                            entries.putDownload(SavedStore.Download(SavedStore.id(video), "Downloaded")); changed = true
+                        }
+                    }
+                    changed
+                }
+                if (owner == account && modified) reload()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (owner == account) status = "Could not update downloads." }
         }
-        if (modified) reload()
     }
     fun navigate(destination: String) {
         page = destination; saved["page"] = destination
@@ -129,10 +166,13 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
     fun order(value: Int) { sort = value; preferences.edit().putInt("sort", value).apply() }
     internal fun sorted(input: List<Video>) = VideoSort.sorted(input, sort)
     internal fun toggle(video: Video, list: String) {
-        val library = telegram.requireLibrary(); library.save(video)
-        val id = SavedStore.id(video); val entries = store!!.entries()
-        if ((if (list == "Favorites") favorites else watchlist).contains(id)) entries.remove(id, list) else entries.put(SavedStore.Member(id, list))
-        reload(); status = if ((if (list == "Favorites") favorites else watchlist).contains(id)) "Saved to $list" else "Removed from $list"
+        val library = telegram.requireLibrary()
+        val id = SavedStore.id(video); val entries = store?.entries() ?: return
+        val removing = id in if (list == "Favorites") favorites else watchlist
+        work("Updating $list…") {
+            network { library.save(video); if (removing) entries.remove(id, list) else entries.put(SavedStore.Member(id, list)) }
+            reload(); status = if (removing) "Removed from $list" else "Saved to $list"
+        }
     }
     fun showChannels() { channelsVisible = true; scanSources(); if (channelQuery.isNotBlank()) searchChannels(channelQuery) }
     fun closeChannels() = closeChannels(true)
@@ -141,7 +181,7 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
         channelSearchEpoch++; channelSearchJob?.cancel(); channelSearchJob = null
         channelSearchLoading = false
         if (loadSelected && stage == "ready") {
-            val targets = telegram.requireLibrary().chats(true)
+            val targets = channels.filter { it.selected() }
             if (targets.isNotEmpty()) work("Loading selected channels…") {
                 val failed = mutableListOf<String>()
                 for (source in targets) {
@@ -158,7 +198,7 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
         channelQuery = value; saved["channelQuery"] = value
         searchChannels(value)
     }
-    internal fun select(source: Library.Chat) { telegram.requireLibrary().select(source.id(), !source.selected()); reload() }
+    internal fun select(source: Library.Chat) { work("Updating sources…") { network { telegram.requireLibrary().select(source.id(), !source.selected()) }; reload() } }
     fun scanSources() {
         if (scan?.isActive == true || !discoveryMore) return
         val generation = telegram.generation
@@ -204,12 +244,12 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
         if (value.isBlank()) { searching = false; return }
         queryJob = viewModelScope.launch {
             delay(450)
-            val selected = telegram.requireLibrary().chats(true)
+            val selected = channels.filter { it.selected() }
             val current = SearchSession(telegram, selected, value.trim()); session = current
-            searchResults = sorted(telegram.requireLibrary().videos(0, value.trim(), false, 10000))
+            searchResults = sorted(videos.filter { it.displayTitle.contains(value.trim(), true) || it.name.contains(value.trim(), true) || it.caption.contains(value.trim(), true) })
             try {
                 searchMore = withContext(Dispatchers.IO) { loader.withLock { current.next() } }
-                if (token == queryEpoch) { reload(); mergeSearch(current); lastSearch = searchResults.firstOrNull() }
+                if (token == queryEpoch) { reload { if (token == queryEpoch) { mergeSearch(current); lastSearch = searchResults.firstOrNull() } } }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (token == queryEpoch) status = "${e.message} · Retry search" }
             finally { if (token == queryEpoch) searching = false }
@@ -217,7 +257,7 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
     }
     private fun mergeSearch(current: SearchSession) {
         val selected = channels.filter { it.selected() }.map { it.id() }.toSet()
-        searchResults = sorted((telegram.requireLibrary().videos(0, query.trim(), false, 10000) + current.results.values).filter { it.chatId in selected }.distinctBy { it.key() })
+        searchResults = sorted((videos.filter { it.displayTitle.contains(query.trim(), true) || it.name.contains(query.trim(), true) || it.caption.contains(query.trim(), true) } + current.results.values).filter { it.chatId in selected }.distinctBy { it.key() })
     }
     fun moreSearch() {
         if (searching) return
@@ -227,7 +267,7 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
         queryJob = viewModelScope.launch {
             try {
                 searchMore = withContext(Dispatchers.IO) { loader.withLock { current.next() } }
-                if (token == queryEpoch) { reload(); mergeSearch(current); lastSearch = searchResults.firstOrNull() }
+                if (token == queryEpoch) { reload { if (token == queryEpoch) { mergeSearch(current); lastSearch = searchResults.firstOrNull() } } }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { status = "${e.message} · Retry search" }
             finally { if (token == queryEpoch) searching = false }
@@ -243,10 +283,10 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
         collectionQueryJob = viewModelScope.launch {
             delay(450)
             val current = SearchSession(telegram, listOf(source), value.trim()); collectionSession = current
-            collectionSearchResults = sorted(telegram.requireLibrary().videos(0, value.trim(), false, 10000).filter { it.chatId == targetChat })
+            collectionSearchResults = sorted(videos.filter { it.displayTitle.contains(value.trim(), true) || it.name.contains(value.trim(), true) || it.caption.contains(value.trim(), true) }.filter { it.chatId == targetChat })
             try {
                 collectionSearchMore = withContext(Dispatchers.IO) { loader.withLock { current.next() } }
-                if (token == collectionQueryEpoch && page == "collection" && chat == targetChat) { reload(); mergeCollectionSearch(current) }
+                if (token == collectionQueryEpoch && page == "collection" && chat == targetChat) { reload { if (token == collectionQueryEpoch && page == "collection" && chat == targetChat) mergeCollectionSearch(current) } }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (token == collectionQueryEpoch) collectionSearchError = e.message ?: "Channel search failed. Try again." }
             finally { if (token == collectionQueryEpoch) collectionSearching = false }
@@ -254,7 +294,7 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
     }
     private fun mergeCollectionSearch(current: SearchSession) {
         val targetChat = chat
-        val cached = telegram.requireLibrary().videos(0, collectionQuery.trim(), false, 10000).filter { it.chatId == targetChat }
+        val cached = videos.filter { it.displayTitle.contains(collectionQuery.trim(), true) || it.name.contains(collectionQuery.trim(), true) || it.caption.contains(collectionQuery.trim(), true) }.filter { it.chatId == targetChat }
         collectionSearchResults = sorted((cached + current.results.values).filter { it.chatId == targetChat }.distinctBy { it.key() })
     }
     fun moreCollectionSearch() {
@@ -264,7 +304,7 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
         collectionQueryJob = viewModelScope.launch {
             try {
                 collectionSearchMore = withContext(Dispatchers.IO) { loader.withLock { current.next() } }
-                if (token == collectionQueryEpoch && page == "collection" && chat == targetChat) { reload(); mergeCollectionSearch(current) }
+                if (token == collectionQueryEpoch && page == "collection" && chat == targetChat) { reload { if (token == collectionQueryEpoch && page == "collection" && chat == targetChat) mergeCollectionSearch(current) } }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (token == collectionQueryEpoch) collectionSearchError = e.message ?: "Channel search failed. Try again." }
             finally { if (token == collectionQueryEpoch) collectionSearching = false }
@@ -273,7 +313,7 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
     fun refresh() {
         if (page == "search") { if (query.isNotBlank()) search(query); return }
         if (page == "collection" && collectionQuery.isNotBlank()) { searchCollection(collectionQuery); return }
-        val selected = telegram.requireLibrary().chats(true).map { it.id() }
+        val selected = channels.filter { it.selected() }.map { it.id() }
         val target = if (page == "collection") listOf(chat) else selected
         work("Refreshing newest videos…") { network { loader.withLock { target.forEach { telegram.page(it, true) } } }; reload(); status = "Newest videos refreshed" }
     }
@@ -306,8 +346,8 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
             finally { reload() }
         }
     }
-    internal fun mark(video: Video) { telegram.requireLibrary().progress(video, video.duration * 1000L, video.duration * 1000L, true); reload() }
-    internal fun removeHistory(video: Video) { telegram.requireLibrary().removeHistory(video.key()); reload() }
+    internal fun mark(video: Video) { work("Updating history…") { network { telegram.requireLibrary().progress(video, video.duration * 1000L, video.duration * 1000L, true) }; reload() } }
+    internal fun removeHistory(video: Video) { work("Updating history…") { network { telegram.requireLibrary().removeHistory(video.key()) }; reload() } }
     private fun reconcileDownloads() = work("Checking saved downloads…") {
         val records = store?.entries()?.downloads().orEmpty()
         for (record in records) {
@@ -350,5 +390,5 @@ class LibraryModel(application: Application, private val saved: SavedStateHandle
         }
     }
     fun message(value: String) { status = value }
-    override fun onCleared() { telegram.unlisten(this); scan?.cancel(); channelSearchJob?.cancel(); queryJob?.cancel(); collectionQueryJob?.cancel(); store?.close(); artwork?.close() }
+    override fun onCleared() { reloadEpoch++; reloadJob?.cancel(); telegram.unlisten(this); scan?.cancel(); channelSearchJob?.cancel(); queryJob?.cancel(); collectionQueryJob?.cancel(); store?.close(); artwork?.close() }
 }

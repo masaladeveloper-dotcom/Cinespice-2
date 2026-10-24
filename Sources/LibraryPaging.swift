@@ -31,6 +31,8 @@ enum LibraryOrder: String, CaseIterable {
     func sort(_ videos: [TelegramVideo]) -> [TelegramVideo] {
         let years: [String: Int?] = (self == .latestRelease || self == .earliestRelease)
             ? Dictionary(videos.map { ($0.id, $0.filenameYear) }, uniquingKeysWith: { first, _ in first }) : [:]
+        let titles = (self == .titleAscending || self == .titleDescending)
+            ? Dictionary(videos.map { ($0.id, $0.displayTitle) }, uniquingKeysWith: { first, _ in first }) : [:]
         return videos.sorted {
             if self == .latestRelease || self == .earliestRelease {
                 let a = years[$0.id] ?? nil, b = years[$1.id] ?? nil
@@ -41,7 +43,7 @@ enum LibraryOrder: String, CaseIterable {
                 }
             }
             if self == .titleAscending || self == .titleDescending {
-                let result = $0.title.localizedStandardCompare($1.title)
+                let result = (titles[$0.id] ?? $0.title).localizedStandardCompare(titles[$1.id] ?? $1.title)
                 if result != .orderedSame { return self == .titleAscending ? result == .orderedAscending : result == .orderedDescending }
             }
             if $0.date != $1.date { return self == .oldest ? $0.date < $1.date : $0.date > $1.date }

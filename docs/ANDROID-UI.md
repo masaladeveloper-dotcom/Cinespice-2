@@ -15,10 +15,10 @@ touch targets. Honor status/navigation bars, display cutouts and font scaling.
 
 - Compact top app bar: CINESPICE (refresh), Channels icon, Profile icon; collection
   screens add Back. Keep one channel selector and one search destination.
-- Bottom navigation: Home, Favorites, Search, Downloads, History. Use a navigation
+- Bottom navigation: Home, Search, Library, Downloads. Use a navigation
   rail on larger windows if space requires it, retaining identical destinations.
 - Adaptive poster grid: about 140dp minimum card width, 16dp gaps, centered content
-  capped around 1200dp. Continue Watching uses a horizontal landscape-card rail.
+  capped around 1200dp. Continue Watching uses a horizontal portrait-card rail.
 - Seven-position `HorizontalPager`, dots and accessible page descriptions. No
   autoplay or fake trending data. Preserve explicit provider placeholders.
 - Use standard Android text/fonts with the same hierarchy: compact bold wordmark,
@@ -35,14 +35,12 @@ active screen. Keep account/library/history in durable local storage.
 Only Channels opens source selection. Display owner-first channels/groups with a selection control
 and separate browse arrow on selected rows. Discover gradually;
 loading source metadata must not trigger downloads from every channel. Closing
-the picker loads one initial page for each selected source. Home shows one
-horizontal rail of selected-source cards, without a separate My channels page,
-global library grid or per-channel video shelves. Tapping a card opens that
-channel's collection page, where search is scoped to that channel and sorting
+the picker loads one initial page for each selected source. Home shows one horizontal rail of up to 15 portrait videos per selected source.
+The source heading arrow opens that channel's collection page, where search is scoped to that channel and sorting
 matches the shared library choice. Search remains universal across selected
 sources.
 
-Favorites has Favorites/Watchlist segmented tabs. Card overflow exposes save/remove,
+Library has New Releases/Favorites/Watchlist/History filters. Long-press menus expose save/remove,
 play/resume, start over, download/cancel, export and history actions. Use scoped
 message IDs and an account-specific Room database; list membership is independent
 of caches and watch history. Deselecting a source hides, not deletes, saved items.
@@ -72,8 +70,8 @@ Use the pinned Android libVLC APIs; do not port Swift/Objective-C runtime select
 Keep the picture visible under controls: transparent full-screen hit layer with
 compact top/bottom black gradients, rather than a dim background over the full
 video. Keep player labels and option rows compact while preserving 48dp targets.
-Recreate the custom black player,
-orange timeline, ±10 seconds, play/pause, tracks, subtitle size/delay, speed, aspect,
+Retain the custom black player,
+theme-colored timeline, ±10 seconds, play/pause, tracks, subtitle size/delay, speed, aspect,
 lock and explicit orientation toggle. Fit respects cutouts; edge-to-edge is opt-in.
 
 Options are small dark panels: bottom in portrait, bottom-side in landscape, with

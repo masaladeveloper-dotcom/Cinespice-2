@@ -67,7 +67,7 @@ public class AndroidSmokeTest {
         return null;
     }
     private void verifyPanel(PlayerActivity activity, boolean landscape) {
-        instrumentation.runOnMainSync(() -> { android.view.View speed = find(activity.getWindow().getDecorView(), "Speed"); assertNotNull(speed); speed.performClick(); });
+        instrumentation.runOnMainSync(() -> { android.view.View more = find(activity.getWindow().getDecorView(), "More options"); assertNotNull(more); more.performClick(); android.view.View speed = find(activity.getWindow().getDecorView(), "Playback speed"); assertNotNull(speed); speed.performClick(); });
         instrumentation.waitForIdleSync();
         instrumentation.runOnMainSync(() -> {
             android.view.ViewGroup overlay = (android.view.ViewGroup) find(activity.getWindow().getDecorView(), "Player options"); assertNotNull(overlay);

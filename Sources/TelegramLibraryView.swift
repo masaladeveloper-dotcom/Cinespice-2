@@ -1,12 +1,16 @@
 import SwiftUI
+import UIKit
 
 struct TelegramLibraryView: View {
-    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .ember
+    @AppStorage("cinespice.theme") private var theme: CinespiceTheme = .dark
     @AppStorage("cinespice.order") private var order: LibraryOrder = .latestRelease
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var dailySeed = Int(Date().timeIntervalSince1970 / 86400)
-    @State private var savedList = "Favorites"
+    @State private var savedList = "New Releases"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .body) private var posterWidth: CGFloat = 136
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Namespace private var librarySelection
     @State private var lastSearchVideo: TelegramVideo?
     @State private var refreshMessage = ""
     @EnvironmentObject private var telegram: TelegramClient
@@ -21,7 +25,14 @@ struct TelegramLibraryView: View {
     @State private var emailCode = ""
     @State private var tab = 0
     @State private var viewport = CGSize(width: 390, height: 844)
+    @State private var heroSelection = 0
+    @ScaledMetric(relativeTo: .title2) private var heroDetailsHeight: CGFloat = 184
+    @ScaledMetric(relativeTo: .subheadline) private var heroHeadingHeight: CGFloat = 24
+    @FocusState private var focusedField: LoginField?
+    private enum LoginField: Hashable { case country, phone, code, password, email, emailCode, search }
+    private var layout: CinespiceLayout { CinespiceLayout(width: min(viewport.width, CinespiceLayout.maximumWidth)) }
     @State private var detailsVideo: TelegramVideo?
+    @State private var playAfterDetails: TelegramVideo?
     @State private var query = ""
     @State private var exportFile: VideoExport?
     @State private var exportDirectory: URL?
@@ -37,46 +48,59 @@ struct TelegramLibraryView: View {
     @State private var playbackError = ""
 
     var body: some View {
-        ZStack {
-            theme.background.ignoresSafeArea()
-            if telegram.stage == .ready { libraryScreen.disabled(openingID != nil).accessibilityHidden(openingID != nil) }
-            else { authentication }
-            if openingID != nil {
-                MediaOpeningOverlay(title: openingTitle, cancel: cancelOpening)
-                    .zIndex(10)
+        NavigationStack {
+            ZStack {
+                theme.background.ignoresSafeArea()
+                if telegram.stage == .ready { libraryScreen.disabled(openingID != nil).accessibilityHidden(openingID != nil) }
+                else { authentication }
+                if openingID != nil {
+                    MediaOpeningOverlay(title: openingTitle, cancel: cancelOpening)
+                        .zIndex(10)
+                }
             }
-        }
-        .background(GeometryReader { geometry in
-            Color.clear.allowsHitTesting(false).onAppear { viewport = geometry.size }.onChange(of: geometry.size) { viewport = $0 }
-        })
-        .foregroundStyle(theme.text)
-        .tint(theme.accent)
-        .preferredColorScheme(theme.scheme)
-        .background(KeyboardDismissObserver().frame(width: 0, height: 0))
-        .task { telegram.restoreSession() }
-        .onChange(of: scenePhase) { if $0 == .active { dailySeed = Int(Date().timeIntervalSince1970 / 86400) } }
-        .sheet(isPresented: $showCollections) { CollectionPicker { chat in showCollections = false; openCollection(chat) } }
-        .sheet(item: $exportFile, onDismiss: {
-            if let directory = exportDirectory {
-                Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: directory) }
+            .background(GeometryReader { geometry in
+                Color.clear.allowsHitTesting(false).onAppear { viewport = geometry.size }.onChange(of: geometry.size) { viewport = $0 }
+            })
+            .foregroundStyle(theme.text)
+            .tint(theme.accent)
+            .preferredColorScheme(theme.scheme)
+            .toolbar(.hidden, for: .navigationBar)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focusedField = nil }
+                }
             }
-            exportDirectory = nil
-        }) { file in VideoExportPicker(file: file) { exportFile = nil } }
-        .sheet(item: $detailsVideo) { VideoDetailsView(video: $0) }
-        .sheet(isPresented: $showSettings) { LibrarySettingsView() }
-        .fullScreenCover(item: $selection) { item in
-            VLCPlaybackView(selection: item, library: library) { selection = nil }
-        }
-        .alert("Could not open video", isPresented: Binding(get: { !playbackError.isEmpty }, set: { if !$0 { playbackError = "" } })) {
-            Button("OK") { playbackError = "" }
-        } message: { Text(playbackError) }
-        .onChange(of: telegram.stage) { stage in
-            if stage != .code { code = "" }; if stage != .password { password = "" }; if stage != .emailCode { emailCode = "" }
+            .task { telegram.restoreSession() }
+            .onChange(of: scenePhase) { if $0 == .active { dailySeed = Int(Date().timeIntervalSince1970 / 86400) } }
+            .sheet(isPresented: $showCollections) { CollectionPicker { chat in showCollections = false; openCollection(chat) } }
+            .sheet(item: $exportFile, onDismiss: {
+                if let directory = exportDirectory {
+                    Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: directory) }
+                }
+                exportDirectory = nil
+            }) { file in VideoExportPicker(file: file) { exportFile = nil } }
+            .sheet(item: $detailsVideo, onDismiss: {
+                if let video = playAfterDetails { playAfterDetails = nil; play(video) }
+            }) { video in
+                VideoDetailsView(play: { playAfterDetails = video; detailsVideo = nil }, video: video)
+            }
+            .sheet(isPresented: $showSettings) { LibrarySettingsView() }
+            .fullScreenCover(item: $selection) { item in
+                VLCPlaybackView(selection: item, library: library) { selection = nil }
+            }
+            .alert("Could not open video", isPresented: Binding(get: { !playbackError.isEmpty }, set: { if !$0 { playbackError = "" } })) {
+                Button("OK") { playbackError = "" }
+            } message: { Text(playbackError) }
+            .onChange(of: telegram.stage) { stage in
+                focusedField = nil
+                if stage != .code { code = "" }; if stage != .password { password = "" }; if stage != .emailCode { emailCode = "" }
 
-            if stage != .ready {
-                cancelOpening()
-                showCollections = false; showSettings = false
-                lastSearchVideo = nil; tab = 0; selection = nil; exportFile = nil; collection = nil; detailsVideo = nil; query = ""; rangeServer.stop()
+                if stage != .ready {
+                    cancelOpening()
+                    showCollections = false; showSettings = false
+                    playAfterDetails = nil; lastSearchVideo = nil; tab = 0; savedList = "New Releases"; selection = nil; exportFile = nil; collection = nil; detailsVideo = nil; query = ""; rangeServer.stop()
+                }
             }
         }
     }
@@ -86,42 +110,51 @@ struct TelegramLibraryView: View {
     }
 
     private var libraryScreen: some View {
+        TabView(selection: $tab) {
+            libraryDestination(0).tabItem { Label("Home", systemImage: "house") }.tag(0)
+            libraryDestination(2).tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(2)
+            libraryDestination(1).tabItem { Label("Library", systemImage: "square.stack") }.tag(1)
+            libraryDestination(3).tabItem { Label("Downloads", systemImage: "arrow.down.circle") }.tag(3)
+        }.tabViewStyle(.automatic)
+            .toolbarBackground(theme.surface, for: .tabBar)
+            .onChange(of: tab) { _ in collection = nil; focusedField = nil }
+            .task(id: refreshMessage) {
+                guard !refreshMessage.isEmpty else { return }
+                do { try await Task.sleep(nanoseconds: 3_000_000_000) } catch { return }
+                refreshMessage = ""
+            }
+            .task(id: "\(showCollections)_" + library.selectedCollections.map { String($0.id) }.joined(separator: ",")) {
+                guard !showCollections else { return }
+                for chat in library.selectedCollections { telegram.ensureChat(chat.id) }
+            }
+    }
+
+    private func libraryDestination(_ destination: Int) -> some View {
         VStack(spacing: 0) {
             header
             if !refreshMessage.isEmpty { Text(refreshMessage).font(.caption).foregroundStyle(theme.muted).padding(6) }
             if exporting { ProgressView("Preparing export…").font(.caption).tint(theme.accent).padding(10) }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 28) {
-                    if let collection { collectionPage(collection) }
-                    else {
-                        switch tab {
-                        case 1: favoritesPage
-                        case 2: searchPage
-                        case 3: downloadsPage
-                        case 4: historyPage
-                        case 5: collectionsPage
-                        default: home
+            ScrollViewReader { scroll in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 28) {
+                        if tab == destination, let collection { collectionPage(collection) }
+                        else {
+                            switch destination {
+                            case 1: personalLibraryPage
+                            case 2: searchPage
+                            case 3: downloadsPage
+                            default: home
+                            }
                         }
-                    }
-                    if !library.error.isEmpty { banner(library.error) }
-                    if !telegram.status.isEmpty { banner(telegram.status) }
-                }.padding(.bottom, 24).frame(maxWidth: 1200).frame(maxWidth: .infinity)
-            }.coordinateSpace(name: "library-scroll")
-                .scrollDismissesKeyboard(.interactively)
-                .id("\(tab)_\(collection?.id ?? 0)_\(tab == 1 ? savedList : "")_\(library.sessionID)")
-        }
-
-        .safeAreaInset(edge: .bottom, spacing: 0) { tabs }
-        .buttonStyle(CinespiceButtonStyle())
-        .task(id: refreshMessage) {
-            guard !refreshMessage.isEmpty else { return }
-            do { try await Task.sleep(nanoseconds: 3_000_000_000) } catch { return }
-            refreshMessage = ""
-        }
-        .task(id: "\(showCollections)_" + library.selectedCollections.map { String($0.id) }.joined(separator: ",")) {
-            guard !showCollections else { return }
-            for chat in library.selectedCollections { telegram.ensureChat(chat.id) }
-        }
+                        if !library.error.isEmpty { banner(library.error) }
+                        if !telegram.status.isEmpty { banner(telegram.status) }
+                    }.id("library-top").padding(.bottom, 24).frame(maxWidth: CinespiceLayout.maximumWidth).frame(maxWidth: .infinity)
+                }.coordinateSpace(name: "library-scroll")
+                    .scrollDismissesKeyboard(.interactively)
+                    .id("\(tab)_\(collection?.id ?? 0)_\(library.sessionID)")
+                    .onChange(of: savedList) { _ in scroll.scrollTo("library-top", anchor: .top) }
+            }
+        }.background(theme.background)
     }
 
     private var header: some View {
@@ -130,13 +163,22 @@ struct TelegramLibraryView: View {
                 Button { collection = nil } label: { Image(systemName: "arrow.left").frame(width: 44, height: 44) }.accessibilityLabel("Back to library")
             }
             Button(action: refreshCurrentPage) {
-                Text("CINESPICE").tracking(-1).font(.system(size: 22, weight: .black, design: .rounded))
-                    .minimumScaleFactor(0.6).lineLimit(1).foregroundStyle(theme.accent)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        if collection == nil {
+                            Image("BrandMark").resizable().scaledToFit().frame(width: 36, height: 36)
+                                .clipShape(RoundedRectangle(cornerRadius: 9)).accessibilityHidden(true)
+                        }
+                        CinespiceWordmark().fixedSize()
+                    }
+                    Image("BrandMark").resizable().scaledToFit().frame(width: 36, height: 36)
+                        .clipShape(RoundedRectangle(cornerRadius: 9)).accessibilityHidden(true)
+                }
             }.accessibilityLabel("Cinespice, refresh current library")
             Spacer(minLength: 0)
-            Button { showCollections = true } label: { Image(systemName: "rectangle.stack").frame(width: 44, height: 44) }.accessibilityLabel("Channels and groups")
-            Button { showSettings = true } label: { Image(systemName: "person.crop.circle").frame(width: 44, height: 44) }.accessibilityLabel("Profile and settings")
-        }.padding(.horizontal, 16).padding(.vertical, 2).background(.ultraThinMaterial)
+            Button { showCollections = true } label: { Image(systemName: "rectangle.stack").font(.system(size: 18, weight: .medium)).frame(width: 40, height: 40).background(theme.surface, in: Circle()).frame(width: 44, height: 44) }.accessibilityLabel("Channels and groups")
+            Button { showSettings = true } label: { Image(systemName: "person.crop.circle.fill").font(.system(size: 30, weight: .regular)).foregroundStyle(theme.muted).frame(width: 44, height: 44) }.accessibilityLabel("Profile and settings")
+        }.padding(.horizontal, layout.gutter).padding(.vertical, 8).frame(maxWidth: CinespiceLayout.maximumWidth).frame(maxWidth: .infinity).background(theme.background).buttonStyle(.plain)
     }
 
     private func refreshCurrentPage() {
@@ -157,6 +199,17 @@ struct TelegramLibraryView: View {
         } else { refreshMessage = "Select sources using the channel icon." }
     }
 
+    private func resultSummary(_ text: String, sorting: Bool = true) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
+            Text(text).font(.caption).foregroundStyle(theme.muted)
+            if sorting {
+                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                sortControl
+            }
+        }.padding(.horizontal, self.layout.gutter)
+    }
+
     private var sortControl: some View {
         Menu {
             Picker("Sort videos", selection: $order) { ForEach(LibraryOrder.allCases, id: \.self) { Text($0.title).tag($0) } }
@@ -164,9 +217,9 @@ struct TelegramLibraryView: View {
     }
 
     private var home: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 32) {
             heroCarousel
-            if !library.continueWatching.isEmpty { rail("Continue Watching", subtitle: "", videos: Array(library.continueWatching.prefix(12)), wide: true) }
+            if !library.continueWatching.isEmpty { rail("Continue Watching", subtitle: "", videos: Array(library.continueWatching.prefix(12)), wide: false) }
             if library.selectedCollections.isEmpty {
                 LibraryEmptyState(symbol: "rectangle.stack", title: "Your cinema starts here", detail: "Choose channels above to start exploring your videos.")
             }
@@ -177,12 +230,12 @@ struct TelegramLibraryView: View {
                         HStack {
                             Text(chat.title).font(.title3.weight(.bold)).lineLimit(1)
                             Spacer()
-                            Image(systemName: "arrow.right.circle.fill").foregroundStyle(theme.accent)
-                        }.foregroundStyle(theme.text).padding(.horizontal, 20).frame(minHeight: 44)
+                            Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(theme.muted)
+                        }.foregroundStyle(theme.text).padding(.horizontal, layout.gutter).frame(minHeight: 44)
                     }.accessibilityLabel("Open " + chat.title)
                     if videos.isEmpty {
-                        Text("No videos loaded yet. Open this channel to browse.").font(.subheadline).foregroundStyle(theme.muted).padding(.horizontal, 20)
-                    } else { posterRail(videos, wide: true) }
+                        Text("No videos loaded yet. Open this channel to browse.").font(.subheadline).foregroundStyle(theme.muted).padding(.horizontal, layout.gutter)
+                    } else { posterRail(videos, wide: false) }
                 }
             }
             if !telegram.loadingCollections.isEmpty { ProgressView("Loading a small page…").frame(maxWidth: .infinity).font(.caption).tint(theme.accent) }
@@ -200,42 +253,9 @@ struct TelegramLibraryView: View {
         }.prefix(15))
     }
 
-    private func channelTile(_ chat: TelegramChat) -> some View {
-        let videos = library.videos.filter { $0.chatID == chat.id }
-        return Button { openCollection(chat) } label: {
-            ZStack(alignment: .bottomLeading) {
-                if let video = videos.first { VideoArtwork(video: video) }
-                else { theme.surface; Image(systemName: "play.rectangle").font(.system(size: 38, weight: .ultraLight)).foregroundStyle(theme.muted.opacity(0.45)).frame(maxWidth: .infinity, maxHeight: .infinity) }
-                LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
-                VStack(alignment: .leading, spacing: 5) {
-                    if chat.isOwner == true { Label { Text("YOUR CHANNEL").tracking(1) } icon: { Image(systemName: "crown.fill") }.font(.system(size: 8, weight: .bold)).foregroundStyle(theme.accent) }
-                    Text(chat.title).font(.system(size: 16, weight: .bold)).lineLimit(2)
-                    HStack(spacing: 4) { Text(videos.isEmpty ? "Loading videos…" : "\(videos.count) saved titles"); Spacer(); Image(systemName: "chevron.right") }.font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.7))
-                }.padding(14)
-            }.frame(height: 142).clipShape(RoundedRectangle(cornerRadius: 10)).contentShape(Rectangle())
-        }.buttonStyle(CinespiceButtonStyle())
+    private var heroArtworkHeight: CGFloat {
+        min(440, max(200, layout.innerWidth * (viewport.width > viewport.height ? 0.42 : 0.72)))
     }
-
-    private var collectionsPage: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            pageTitle("Your channels", subtitle: "CHOSEN BY YOU")
-            if library.selectedCollections.isEmpty { LibraryEmptyState(symbol: "rectangle.stack", title: "Choose your screen", detail: "Use Channels above to select the sources you want.") }
-            ForEach(library.selectedCollections) { chat in
-                let videos = order.sort(browseVideos.filter { $0.chatID == chat.id })
-                VStack(alignment: .leading, spacing: 10) {
-                    Button { openCollection(chat) } label: {
-                        HStack { Text(chat.title).font(.title3.weight(.bold)).lineLimit(1); Spacer(); Image(systemName: "chevron.right").font(.caption.weight(.semibold)) }
-                            .foregroundStyle(theme.text).padding(.horizontal, 20).frame(minHeight: 44).contentShape(Rectangle())
-                    }
-                    if videos.isEmpty { Text("Loading videos…").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 20) }
-                    else { posterRail(Array(videos.prefix(18)), wide: false) }
-                }
-            }
-            if !telegram.loadingCollections.isEmpty { ProgressView("Loading selected channels…").frame(maxWidth: .infinity).tint(theme.accent) }
-        }
-    }
-
-    private var heroHeight: CGFloat { min(440, max(290, viewport.height * 0.49)) }
     private var dailyVideo: TelegramVideo? {
         let items = library.videos.sorted { $0.id < $1.id }
         guard !items.isEmpty else { return nil }
@@ -245,82 +265,120 @@ struct TelegramLibraryView: View {
         return items[Int((seed ^ (seed >> 31)) % UInt64(items.count))]
     }
     private var heroCarousel: some View {
-        // Seven editorial positions; no fabricated catalogue results.
-        TabView {
+        TabView(selection: $heroSelection) {
             heroSlot("Recently added", video: LibraryOrder.newest.sort(library.videos).first, empty: "Add a source to discover your videos.").tag(0)
             heroSlot("Today's pick", video: dailyVideo, empty: "Your daily pick appears when videos are indexed.").tag(1)
             ForEach(0..<4) { index in
-                heroSlot("Trending · \(index + 1)", video: nil, empty: "Catalogue connection coming later. No trending data connected yet.").tag(index + 2)
+                heroSlot("Trending · \(index + 1)", video: nil, empty: "No trending catalogue connected yet.").tag(index + 2)
             }
             heroSlot("Last searched", video: lastSearchVideo.flatMap { library.snapshot.selected.contains($0.chatID) ? $0 : nil }, empty: "Search for a video to fill this spot.").tag(6)
-        }.tabViewStyle(.page(indexDisplayMode: .always)).indexViewStyle(.page(backgroundDisplayMode: .always))
-            .frame(height: heroHeight + 66)
+        }.tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
+            .frame(height: heroArtworkHeight + heroDetailsHeight + heroHeadingHeight + 88)
     }
     private func heroSlot(_ title: String, video: TelegramVideo?, empty: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title.uppercased()).font(.caption2.bold()).tracking(1.5).foregroundStyle(theme.accent).padding(.horizontal, 20).padding(.vertical, 8)
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.muted)
+                .frame(height: heroHeadingHeight, alignment: .leading)
             if let video { hero(video) }
             else {
-                ZStack {
-                    LinearGradient(colors: [theme.accent.opacity(0.2), theme.surface], startPoint: .topTrailing, endPoint: .bottomLeading)
-                    LibraryEmptyState(symbol: title.hasPrefix("Trending") ? "sparkles" : "play.rectangle", title: title, detail: empty)
-                }.frame(height: heroHeight).clipShape(RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 16)
+                Image(systemName: "play.rectangle").font(.largeTitle).foregroundStyle(theme.muted)
+                    .frame(maxWidth: .infinity).frame(height: heroArtworkHeight)
+                    .background(theme.surface, in: RoundedRectangle(cornerRadius: 24))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(title).font(.title2.bold())
+                    Text(empty).font(.subheadline).foregroundStyle(theme.muted)
+                    Spacer(minLength: 0)
+                }.frame(height: heroDetailsHeight, alignment: .top)
             }
-            Spacer(minLength: 28)
-        }
+        }.padding(.horizontal, layout.gutter).padding(.top, 12).padding(.bottom, 44)
+            .frame(maxHeight: .infinity, alignment: .top).contentShape(Rectangle())
     }
     @ViewBuilder private var releaseSortHint: some View {
         if order == .latestRelease || order == .earliestRelease {
-            Text("Year hints from filenames · unknown years last. Catalogue release dates coming later.").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 24)
+            Text("Sorted by filename year · Unknown years last").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, layout.gutter)
         }
     }
 
     private func hero(_ video: TelegramVideo) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            VideoArtwork(video: video)
-            LinearGradient(colors: [.black.opacity(0.1), .clear, .black.opacity(0.45), .black.opacity(0.95)], startPoint: .top, endPoint: .bottom).allowsHitTesting(false)
-            LinearGradient(colors: [.black.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing).allowsHitTesting(false)
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 6) {
-                    Text("C").font(.system(size: 22, weight: .black)).foregroundStyle(theme.accent)
-                    Text(library.snapshot.collections.first(where: { $0.id == video.chatID })?.title.uppercased() ?? "YOUR LIBRARY").font(.system(size: 10, weight: .semibold)).tracking(2).lineLimit(1)
+        VStack(alignment: .leading, spacing: 16) {
+            VideoArtwork(video: video).frame(height: heroArtworkHeight)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(library.snapshot.collections.first(where: { $0.id == video.chatID })?.title ?? "Your library")
+                        .font(.caption).foregroundStyle(theme.muted).lineLimit(1)
+                    Text(video.displayTitle).font(.title2.bold()).lineLimit(2)
+                    Text([video.formatLabel, ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file),
+                          video.duration > 0 ? "\(video.duration / 60) min" : nil].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(theme.muted)
+                    HStack(spacing: 12) {
+                        Button { play(video) } label: {
+                            MediaPlayPill(progress: library.snapshot.history[video.id]?.fraction)
+                        }.disabled(openingID != nil).accessibilityLabel("Play " + video.displayTitle)
+                        Text(library.snapshot.history[video.id]?.canResume == true ? "Resume" : "Play").font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 0)
+                        Button { detailsVideo = video } label: { MediaInfoIcon() }
+                            .accessibilityLabel("More info about " + video.displayTitle)
+                    }.buttonStyle(.plain)
                 }
-                // Keep tracking on Text before View modifiers.
-                Text(video.title).tracking(-0.9).font(.system(size: 27, weight: .heavy)).lineLimit(2)
-                HStack(spacing: 10) { Text(video.formatLabel).font(.system(size: 10, weight: .bold)).padding(.horizontal, 5).padding(.vertical, 3).overlay(RoundedRectangle(cornerRadius: 2).stroke(.white.opacity(0.6))); Text(ByteCountFormatter.string(fromByteCount: video.size, countStyle: .file)).font(.caption); if video.duration > 0 { Text("\(video.duration / 60) min").font(.caption) } }.foregroundStyle(.white.opacity(0.8))
-                if let caption = video.caption { Text(caption).font(.subheadline).foregroundStyle(.white.opacity(0.75)).lineLimit(2) }
-                HStack(spacing: 12) {
-                    Button { play(video) } label: {
-                        Label(openingID == video.id ? "Opening…" : (library.snapshot.history[video.id]?.canResume == true ? "Resume" : "Play"), systemImage: "play.fill")
-                            .font(.subheadline.weight(.bold)).foregroundStyle(.black).frame(maxWidth: .infinity).padding(.vertical, 13).background(.white, in: RoundedRectangle(cornerRadius: 5))
-                    }.disabled(openingID != nil)
-                    Button { detailsVideo = video } label: { Label("More info", systemImage: "info.circle").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 13).background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 5)) }
-                }
-            }.padding(.horizontal, 24).padding(.bottom, 20)
-        }.frame(height: heroHeight).foregroundStyle(.white).clipShape(RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 16).contentShape(Rectangle())
+            }.frame(height: heroDetailsHeight, alignment: .top)
+        }
     }
 
-    private var favoritesPage: some View {
-        let items = order.sort(library.videos.filter { library.snapshot.savedLists[savedList]?.contains($0.id) == true })
+    private var personalLibraryPage: some View {
+        let saved = library.videos.filter { library.snapshot.savedLists[savedList]?.contains($0.id) == true }
+        let items = savedList == "New Releases" ? LibraryOrder.latestRelease.sort(library.videos) : order.sort(saved)
         return VStack(alignment: .leading, spacing: 16) {
-            pageTitle("Saved for you", subtitle: "FAVORITES & WATCHLIST")
-            Picker("Saved list", selection: $savedList) { Text("Favorites").tag("Favorites"); Text("Watchlist").tag("Watchlist") }.pickerStyle(.segmented).padding(.horizontal, 24)
-            HStack { Text("\(items.count) titles").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
-            releaseSortHint
-            if items.isEmpty { LibraryEmptyState(symbol: savedList == "Favorites" ? "heart" : "bookmark", title: "Make it yours", detail: "Touch and hold a video to add it here. Saved items from deselected sources stay saved and reappear when selected again.") }
-            else { grid(items) }
-        }.id(savedList)
+            pageTitle("Library", subtitle: "")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(["New Releases", "Favorites", "Watchlist", "History"], id: \.self) { category in
+                        Button {
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            withAnimation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.85)) { savedList = category }
+                        } label: {
+                            Text(category).font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 16).frame(minHeight: 44)
+                                .foregroundStyle(savedList == category ? theme.text : theme.muted)
+                                .background {
+                                    if savedList == category {
+                                        Capsule().fill(theme.surface).matchedGeometryEffect(id: "library-category", in: librarySelection)
+                                    }
+                                }
+                        }.buttonStyle(.plain)
+                            .accessibilityAddTraits(savedList == category ? .isSelected : [])
+                    }
+                }.padding(.horizontal, layout.gutter)
+            }
+            if savedList == "History" {
+                if library.watchedVideos.isEmpty {
+                    LibraryEmptyState(symbol: "clock", title: "Your story starts here", detail: "The videos you watch appear here, with your place saved.")
+                } else { grid(Array(library.watchedVideos.prefix(5))) }
+            } else {
+                resultSummary(savedList == "New Releases" ? "\(items.count) titles · Filename year" : "\(items.count) titles", sorting: savedList != "New Releases")
+                if savedList != "New Releases" { releaseSortHint }
+                if items.isEmpty {
+                    LibraryEmptyState(symbol: savedList == "New Releases" ? "film" : "bookmark",
+                                      title: savedList == "New Releases" ? "Make room for your next favorite" : "Save something for later",
+                                      detail: savedList == "New Releases" ? "Choose channels to bring their videos into your library." : "Touch and hold a video to add it to Favorites or Watchlist.")
+                } else { grid(items) }
+            }
+        }
     }
 
     private var downloadsPage: some View {
         let items = order.sort(library.videos.filter { library.display($0).isDownloaded || telegram.fullDownloads.contains($0.fileID) || telegram.preparingDownloads.contains($0.id) })
-        return VStack(alignment: .leading, spacing: 16) {
-            pageTitle("Downloads", subtitle: "READY FOR YOUR NEXT WATCH")
-            Text("Touch and hold any video to download. Completed downloads offer Save to Files with the original filename. Clear local downloads in Profile → Storage.").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 24)
-            HStack { Text("\(items.count) titles").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
-            releaseSortHint
-            if items.isEmpty { LibraryEmptyState(symbol: "arrow.down.circle", title: "Take your cinema with you", detail: "Full downloads from selected sources appear here. Partial streaming buffers are not downloads.") }
-            else { grid(items) }
+        return VStack(alignment: .leading, spacing: 20) {
+            pageTitle("Downloads", subtitle: "")
+            if items.isEmpty {
+                LibraryEmptyState(symbol: "arrow.down.circle", title: "Watch anywhere",
+                                  detail: "Touch and hold a video, then choose Download. Your downloads will appear here.")
+            } else {
+                resultSummary("\(items.count) titles")
+                releaseSortHint
+                LazyVStack(spacing: 12) { ForEach(items) { card($0, compact: true) } }.padding(.horizontal, layout.gutter)
+            }
         }
     }
 
@@ -329,19 +387,15 @@ struct TelegramLibraryView: View {
         let cachedIndex = library.snapshot.indexes[chat.id]
         return VStack(alignment: .leading, spacing: 20) {
             pageTitle(chat.title, subtitle: chat.isOwner == true ? "YOUR CHANNEL" : "YOUR SELECTION")
-            HStack {
-                Text("\(items.count) cached titles").font(.caption).foregroundStyle(theme.muted)
-                Spacer()
-                sortControl
-            }.padding(.horizontal, 20)
-            if order == .oldest { Text("Oldest loaded titles first. Load another page to include earlier uploads.").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, 20) }
+            resultSummary("\(items.count) cached titles")
+            if order == .oldest { Text("Oldest loaded titles first. Load another page to include earlier uploads.").font(.caption).foregroundStyle(theme.muted).padding(.horizontal, layout.gutter) }
             releaseSortHint
             grid(items)
-            if let error = telegram.collectionErrors[chat.id] { Text(error).font(.caption).foregroundStyle(.orange).padding(.horizontal, 24) }
+            if let error = telegram.collectionErrors[chat.id] { Text(error).font(.caption).foregroundStyle(.orange).padding(.horizontal, layout.gutter) }
             if items.isEmpty && !telegram.loadingCollections.contains(chat.id) { LibraryEmptyState(symbol: "film", title: "No cached titles", detail: "Load a page or tap Cinespice to refresh this channel.") }
             if telegram.loadingCollections.contains(chat.id) { ProgressView("Finding more videos…").frame(maxWidth: .infinity).tint(theme.accent) }
             else if cachedIndex == nil || cachedIndex?.hasMore == true {
-                Button { telegram.loadChat(chat.id) } label: { Text("Load more videos").frame(minHeight: 44) }.buttonStyle(.bordered).tint(theme.accent).frame(maxWidth: .infinity)
+                Button { telegram.loadChat(chat.id) } label: { Text("Load more videos").frame(minHeight: 44) }.font(.subheadline.weight(.semibold)).padding(.horizontal, layout.gutter).background(theme.surface, in: Capsule()).tint(theme.text).frame(maxWidth: .infinity)
 
             }
         }
@@ -349,16 +403,16 @@ struct TelegramLibraryView: View {
 
     private var searchPage: some View {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let local = text.isEmpty ? [] : browseVideos.filter { $0.title.localizedCaseInsensitiveContains(text) || ($0.fileName?.localizedCaseInsensitiveContains(text) == true) }
+        let local = text.isEmpty ? [] : browseVideos.filter { $0.displayTitle.localizedCaseInsensitiveContains(text) || $0.title.localizedCaseInsensitiveContains(text) || ($0.fileName?.localizedCaseInsensitiveContains(text) == true) }
         let merged = Dictionary((local + (text.isEmpty ? [] : telegram.videoSearchResults).filter { library.snapshot.selected.contains($0.chatID) }).map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         let results = order.sort(Array(merged.values))
         return VStack(alignment: .leading, spacing: 22) {
-            pageTitle("Find your next watch.", subtitle: "SEARCH SELECTED CHANNELS & GROUPS")
-            HStack { Image(systemName: "magnifyingglass").foregroundStyle(theme.muted); TextField("Video title or filename", text: $query).textInputAutocapitalization(.never); if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Clear search") } }
-                .frame(minHeight: 44).padding(.horizontal, 15).padding(.vertical, 4).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 24)
+            pageTitle("Search", subtitle: "Find your next favorite.")
+            HStack { Image(systemName: "magnifyingglass").foregroundStyle(theme.muted); TextField("Video title or filename", text: $query).textInputAutocapitalization(.never).focused($focusedField, equals: .search).submitLabel(.search); if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Clear search") } }
+                .frame(minHeight: 44).padding(.horizontal, 15).padding(.vertical, 4).background(theme.surface, in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, layout.gutter)
             if text.isEmpty { LibraryEmptyState(symbol: "magnifyingglass", title: "What are you in the mood for?", detail: "Search video names and filenames in your selected channels and groups.") }
             else {
-                HStack { Text("\(results.count) results").font(.caption); Spacer(); sortControl }.padding(.horizontal, 24)
+                resultSummary("\(results.count) results")
                 releaseSortHint
                 grid(results)
                 if telegram.isSearchingVideos { ProgressView("Searching Telegram…").frame(maxWidth: .infinity).tint(theme.accent) }
@@ -369,10 +423,11 @@ struct TelegramLibraryView: View {
                     Button("More results") { Task { await telegram.nextVideoSearchPage() } }
 
                 } else if results.isEmpty && !text.isEmpty { LibraryEmptyState(symbol: "magnifyingglass", title: "No matching videos", detail: "Try a different filename or select more channels and groups.") }
-                LibraryPageTrigger(enabled: telegram.hasMoreVideoResults && !telegram.isSearchingVideos && telegram.videoSearchError.isEmpty, revision: String(telegram.videoSearchResults.count), viewportHeight: viewport.height) { Task { await telegram.nextVideoSearchPage() } }
+                LibraryPageTrigger(enabled: tab == 2 && collection == nil && telegram.hasMoreVideoResults && !telegram.isSearchingVideos && telegram.videoSearchError.isEmpty, revision: String(telegram.videoSearchResults.count), viewportHeight: viewport.height) { Task { await telegram.nextVideoSearchPage() } }
             }
         }
-        .task(id: query + library.selectedCollections.map { String($0.id) }.joined(separator: ",")) {
+        .task(id: "\(tab == 2 && collection == nil)_" + query + library.selectedCollections.map { String($0.id) }.joined(separator: ",")) {
+            guard tab == 2, collection == nil else { return }
             let searched = query
             await telegram.searchVideos(searched)
             guard !Task.isCancelled, query == searched, !searched.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -380,17 +435,9 @@ struct TelegramLibraryView: View {
         }
     }
 
-    private var historyPage: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            pageTitle("Your watching history", subtitle: "LAST FIVE WATCHED")
-            if library.watchedVideos.isEmpty { LibraryEmptyState(symbol: "clock", title: "The story starts here", detail: "Videos you play appear here. Your place is saved on this iPhone.") }
-            else { grid(Array(library.watchedVideos.prefix(5))) }
-        }
-    }
-
     private func posterRail(_ videos: [TelegramVideo], wide: Bool) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 10) { ForEach(videos) { video in card(video, wide: wide).frame(width: wide ? min(320, viewport.width * 0.72) : min(190, viewport.width * 0.39)) } }.padding(.horizontal, 20)
+            LazyHStack(alignment: .top, spacing: 16) { ForEach(videos) { video in card(video, wide: wide).frame(width: wide ? min(320, layout.innerWidth * 0.85) : min(max(160, posterWidth * 1.2), layout.innerWidth * 0.8)) } }.padding(.horizontal, layout.gutter)
         }
     }
     private func rail(_ title: String, subtitle: String, videos: [TelegramVideo], wide: Bool) -> some View {
@@ -400,12 +447,12 @@ struct TelegramLibraryView: View {
         }
     }
     private func grid(_ videos: [TelegramVideo]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16)], alignment: .leading, spacing: 24) {
+        LazyVGrid(columns: layout.columns(minimum: posterWidth), alignment: .leading, spacing: 28) {
             ForEach(videos) { video in card(video) }
-        }.padding(.horizontal, 24)
+        }.padding(.horizontal, layout.gutter)
     }
-    private func card(_ video: TelegramVideo, wide: Bool = false) -> some View {
-        VideoCard(video: video, wide: wide, opening: openingID == video.id, play: { play(video, resume: $0) }, download: { rangeServer.stop(); telegram.download(video) }, export: { exportVideo(video) }, info: { detailsVideo = video })
+    private func card(_ video: TelegramVideo, wide: Bool = false, compact: Bool = false) -> some View {
+        VideoCard(video: video, wide: wide, compact: compact, opening: openingID == video.id, play: { play(video, resume: $0) }, download: { rangeServer.stop(); telegram.download(video) }, export: { exportVideo(video) }, info: { detailsVideo = video })
     }
     private func exportVideo(_ video: TelegramVideo) {
         guard !exporting else { return }; exporting = true
@@ -423,7 +470,7 @@ struct TelegramLibraryView: View {
     private func openCollection(_ chat: TelegramChat) { collection = chat; telegram.ensureChat(chat.id) }
     private func play(_ video: TelegramVideo, resume: Bool = true) {
         guard openingID == nil, selection == nil else { return }
-        openingTitle = video.fileName ?? video.title
+        openingTitle = video.displayTitle
         withAnimation(.easeOut(duration: 0.15)) { openingID = video.id }
         let session = library.sessionID
         let token = UUID(); openingToken = token
@@ -456,87 +503,90 @@ struct TelegramLibraryView: View {
         openingID = nil
         rangeServer.stop()
     }
-    private func eyebrow(_ text: String) -> some View { Text(text).font(.system(size: 9, weight: .bold)).tracking(2.3).foregroundStyle(theme.accent) }
-    private func pageTitle(_ title: String, subtitle: String) -> some View { VStack(alignment: .leading, spacing: 12) { eyebrow(subtitle); Text(title).font(.system(size: 28, weight: .bold)).tracking(-0.7) }.padding(.horizontal, 24).padding(.top, 16) }
-    private func sectionTitle(_ title: String, detail: String) -> some View { Text(title).font(.title3.weight(.bold)).padding(.horizontal, 20) }
-    private func banner(_ message: String) -> some View { Text(message).font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 8) }
-    private var tabs: some View {
-        HStack {
-            tabButton(0, "Home", "house")
-            tabButton(1, "Favorites", "heart")
-            tabButton(2, "Search", "magnifyingglass")
-            tabButton(3, "Downloads", "arrow.down.circle")
-            tabButton(4, "History", "clock")
-        }.padding(8)
-            .background {
-                if reduceTransparency {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(theme.surface)
-                } else {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
-                }
-            }
-            .overlay(RoundedRectangle(cornerRadius: 30).strokeBorder(theme.text.opacity(0.12), lineWidth: 1))
-            .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
-            .padding(.horizontal, 16).padding(.bottom, 8).padding(.top, 6)
+    private func pageTitle(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.largeTitle.weight(.bold)).tracking(-0.8)
+            if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(theme.muted) }
+        }.padding(.horizontal, layout.gutter).padding(.top, 12)
     }
-    private func tabButton(_ index: Int, _ title: String, _ symbol: String) -> some View {
-        Button { tab = index; collection = nil } label: {
-            VStack(spacing: 4) { Image(systemName: symbol).font(.system(size: 18, weight: tab == index ? .semibold : .regular)); Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.72) }.frame(maxWidth: .infinity, minHeight: 48).background(tab == index ? theme.accent.opacity(0.16) : .clear, in: Capsule()).contentShape(Rectangle())
-        }.accessibilityLabel(title).accessibilityAddTraits(tab == index ? .isSelected : [])
-            .foregroundStyle(tab == index ? theme.accent : theme.muted).accessibilityValue(tab == index ? "Selected" : "")
-    }
-
+    private func sectionTitle(_ title: String, detail: String) -> some View { Text(title).font(.title3.weight(.bold)).padding(.horizontal, layout.gutter) }
+    private func banner(_ message: String) -> some View { Text(message).font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, layout.gutter).padding(.bottom, 8) }
     @ViewBuilder private var authentication: some View {
         switch telegram.stage {
         case .credentials: authForm("Your private cinema.", subtitle: "Sign in with Telegram to bring your channels, videos and favorites together.") {
             authButton { telegram.connectUsingBuildCredentials() }
         }
-        case .phone: authForm("Welcome to your cinema", subtitle: "Enter the phone number linked to Telegram, including its country calling code.") {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading) {
-                    Text("Country code").font(.caption).foregroundStyle(theme.muted)
-                    TextField("+91", text: $countryCode).keyboardType(.phonePad).accessibilityLabel("Country calling code")
-                }.frame(width: 110)
-                VStack(alignment: .leading) {
-                    Text("Phone number").font(.caption).foregroundStyle(theme.muted)
-                    TextField("Phone number", text: $phone).keyboardType(.phonePad).textContentType(.telephoneNumber)
-                }
-            }
+        case .phone: authForm("Sign in with Telegram", subtitle: "Enter the phone number linked to Telegram, including its country calling code.") {
+            phoneFields
             authButton { telegram.submitPhone(countryCode: countryCode, number: phone) }
         }
         case .code: authForm("Check Telegram", subtitle: "Enter the code sent by Telegram. It may arrive in your Telegram app rather than by SMS.") {
-            TextField("Login code", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode)
+            TextField("Login code", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode).focused($focusedField, equals: .code).frame(minHeight: 44)
             authButton { telegram.submitCode(code) }
             Button("Didn't receive a code? Resend") { telegram.resendCode() }.disabled(telegram.isAuthenticating)
         }
-        case .password: authForm("One more step", subtitle: "Enter your Telegram two-step verification password.") { SecureField("Password", text: $password); authButton { telegram.submitPassword(password) } }
-        case .email: authForm("Your sign-in email", subtitle: "Telegram requires an email address for this login.") { TextField("Email", text: $email).keyboardType(.emailAddress); authButton { telegram.submitEmail(email) } }
-        case .emailCode: authForm("Check your email", subtitle: "Enter the verification code from Telegram.") { TextField("Email code", text: $emailCode).keyboardType(.numberPad); authButton { telegram.submitEmailCode(emailCode) } }
-        case .loading: VStack(spacing: 24) { Text("CINESPICE").font(.system(size: 28, weight: .black, design: .rounded)).tracking(6); ProgressView("Restoring your library…").tint(theme.accent) }
-        case let .error(message): authForm("Connection needs attention", subtitle: message) { Button { telegram.resetAuth() } label: { Text("Retry connection").frame(minHeight: 44) }.buttonStyle(CinespiceButtonStyle()).tint(theme.accent) }
+        case .password: authForm("One more step", subtitle: "Enter your Telegram two-step verification password.") { SecureField("Password", text: $password).focused($focusedField, equals: .password).frame(minHeight: 44); authButton { telegram.submitPassword(password) } }
+        case .email: authForm("Your sign-in email", subtitle: "Telegram requires an email address for this login.") { TextField("Email", text: $email).keyboardType(.emailAddress).focused($focusedField, equals: .email).frame(minHeight: 44); authButton { telegram.submitEmail(email) } }
+        case .emailCode: authForm("Check your email", subtitle: "Enter the verification code from Telegram.") { TextField("Email code", text: $emailCode).keyboardType(.numberPad).focused($focusedField, equals: .emailCode).frame(minHeight: 44); authButton { telegram.submitEmailCode(emailCode) } }
+        case .loading: VStack(spacing: 32) { CinespiceWordmark(); ProgressView("Opening your library…").tint(theme.accent) }.padding(layout.gutter)
+        case let .error(message): authForm("Connection needs attention", subtitle: message) { Button { telegram.resetAuth() } label: { Text("Retry connection").frame(minHeight: 44) }.buttonStyle(.borderedProminent).controlSize(.large).tint(theme.action) }
         case .ready: EmptyView()
         }
     }
-    private func authButton(_ action: @escaping () -> Void) -> some View { Button(action: action) {
-        HStack { if telegram.isAuthenticating { ProgressView() }; Text(telegram.isAuthenticating ? "Checking…" : "Continue") }.frame(minHeight: 44)
-    }.buttonStyle(.borderedProminent).tint(theme.accent).disabled(telegram.isAuthenticating) }
-    private func authForm<Content: View>(_ title: String, subtitle: String, @ViewBuilder content: () -> Content) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 23) {
-                if telegram.stage != .credentials {
-                    Button { telegram.restartLogin() } label: {
-                        Label("Back to sign in", systemImage: "chevron.left")
-                    }.disabled(telegram.isAuthenticating).frame(minHeight: 44)
+    private var phoneFields: some View {
+        let fields = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+        return fields {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Country code").font(.caption).foregroundStyle(theme.muted)
+                TextField("+91", text: $countryCode).keyboardType(.phonePad).focused($focusedField, equals: .country).frame(minHeight: 44).accessibilityLabel("Country calling code")
+            }.frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 112)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Phone number").font(.caption).foregroundStyle(theme.muted)
+                TextField("Phone number", text: $phone).keyboardType(.phonePad).textContentType(.telephoneNumber).focused($focusedField, equals: .phone).frame(minHeight: 44)
+            }.frame(maxWidth: .infinity)
+        }
+    }
+    private func authButton(_ action: @escaping () -> Void) -> some View {
+        Button { focusedField = nil; action() } label: {
+            HStack(spacing: 10) {
+                if telegram.isAuthenticating { ProgressView().tint(theme.onAction) }
+                Text(telegram.isAuthenticating ? "Connecting…" : "Continue").font(.headline)
+            }.frame(maxWidth: .infinity, minHeight: 28).foregroundStyle(theme.onAction)
+        }.buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
+            .tint(theme.action).disabled(telegram.isAuthenticating)
+    }
+    private func authForm<Content: View>(_ title: String, subtitle: String, @ViewBuilder content: @escaping () -> Content) -> some View {
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if telegram.stage != .credentials {
+                        Button { focusedField = nil; telegram.restartLogin() } label: {
+                            Label("Back to sign in", systemImage: "chevron.left").frame(minHeight: 44)
+                        }.disabled(telegram.isAuthenticating)
+                    }
+                    CinespiceWordmark().padding(.bottom, 4)
+                    Text(title).font(.title.bold()).tracking(-0.5)
+                    Text(subtitle).font(.subheadline).foregroundStyle(theme.muted).lineSpacing(3)
+                    VStack(alignment: .leading, spacing: 16) {
+                        content().font(.body).textFieldStyle(.roundedBorder).controlSize(.large)
+                            .textInputAutocapitalization(.never).disableAutocorrection(true)
+                    }.frame(maxWidth: .infinity).id("auth-fields")
+                    if !telegram.status.isEmpty {
+                        Text(telegram.status).font(.callout).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Color.clear.frame(height: 1).id("auth-bottom")
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(layout.gutter).padding(.top, 8).padding(.bottom, 24)
+                    .frame(maxWidth: 500).frame(maxWidth: .infinity)
+            }.scrollDismissesKeyboard(.interactively)
+                .onChange(of: focusedField) { field in
+                    guard field != nil else { return }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { scroll.scrollTo("auth-fields", anchor: .top) }
                 }
-                Image(systemName: "play.rectangle.on.rectangle.fill")
-                    .font(.system(size: 48, weight: .light)).foregroundStyle(theme.accent)
-                    .padding(24).background(theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 28))
-                Text("CINESPICE").font(.system(size: 22, weight: .black, design: .rounded)).tracking(5).foregroundStyle(theme.accent).padding(.bottom, 12)
-                Text(title).font(.system(size: 38, weight: .medium, design: .serif)).tracking(-1)
-                Text(subtitle).font(.subheadline).foregroundStyle(theme.muted).lineSpacing(5)
-                content().font(.body).textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).disableAutocorrection(true)
-                if !telegram.status.isEmpty { Text(telegram.status).font(.caption).foregroundStyle(.orange) }
-            }.padding(28).frame(maxWidth: 500).frame(maxWidth: .infinity)
+                .onChange(of: telegram.status) { _ in
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { scroll.scrollTo("auth-bottom", anchor: .bottom) }
+                }
         }
     }
 }

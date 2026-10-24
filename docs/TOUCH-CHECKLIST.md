@@ -3,7 +3,7 @@
 ## Implemented fixes
 
 - Custom buttons have at least a 44 × 44 point target, a rectangular hit shape and
-  an immediate pressed highlight. They do not shrink or move when pressed.
+  immediate feedback. Press animations affect the label inside a fixed hit target.
   Disabled controls are visibly dimmed. Native list rows, menus, alerts, pickers
   and navigation bars retain system handling.
 - Header/back/search/clear/overflow controls use explicit targets. The Cancel and
@@ -45,7 +45,7 @@ portrait, manually locked landscape, camera safe areas, an iPad and larger text.
 | Sign-in | Connect; Continue for phone/code/password/email; Back to sign in. Immediate busy state, one request, useful error/retry |
 | Library header | Back returns to library; Cinespice refreshes with feedback; the single Channels icon opens picker; Profile opens settings |
 | Home | Seven hero slots swipe; unavailable trends say so; hero Play/Resume starts one opening attempt; More info opens details |
-| Tabs | Home/Favorites/Search/Downloads/History activate from the entire visible cell; selected tab updates |
+| Tabs | Home/Search/Library/Downloads activate from the entire visible cell; selected tab updates |
 | Search | Clear button works from its whole target; typing does not shift the row height; Retry/More results show progress; tapping a result opens the intended file |
 | Posters | Play target matches the clipped image; adjacent posters and their menus do not steal taps; scrolling does not play a file |
 | Video menu | Play/resume, start over, download/cancel, Save to Files, mark watched and remove history act on that video; async work is visible |
@@ -66,11 +66,11 @@ taps. Record the installed commit and any failing control, orientation and scree
 
 ## Redesign acceptance (not yet exercised on a device)
 
-- Scroll a large collection to the bottom. Switch to History: top visible, at most
+- Scroll a large collection to the bottom. Switch to Library → History: top visible, at most
   five entries. Repeat with Favorites/Watchlist and every tab; return from player
   without losing the underlying scroll position.
 - Search is empty before typing. Clear the query: no cached results remain.
-  Tap outside the keyboard, then tap a button: keyboard closes and action fires once.
+  Use keyboard Done or scroll dismissal; Continue dismisses it and fires once.
 - Favorite and watchlist a remote search result; restart and confirm both. Deselect
   and reselect its channel; items return. Switch accounts: lists remain isolated.
 - Upgrade a schema2 library with history/cursors; verify all still available.
@@ -84,3 +84,26 @@ taps. Record the installed commit and any failing control, orientation and scree
   track imports, subtitle sizes, scrolling and selected states. No tap-through seek.
 - Check seven hero pages, foreground after a UTC day change, last-search result,
   deselected source removal, and truthful catalogue placeholders.
+
+## Responsive brand refinement
+
+Check the four named themes on Home, Search, Library, Downloads, Channels, Account,
+Details and player options. Existing palette names map to the closest new palette.
+Login and connection loading show the name alone. The icon/header retain the red C.
+Verify equal empty/populated hero heights, horizontal swipes, grid columns following safe content
+width, and small/landscape screens and accessibility text can scroll without
+clipping the player options, phone fields or file details.
+
+## Collected fixes: device acceptance still required
+
+- Fresh/repeated sign-in never reports Unexpected setTdlibParameters; genuine
+  setup errors retain Retry. Enter an invalid number/code; verify the error stays
+  reachable above the keyboard. Back must restart the server challenge.
+- Native tabs switch once per tap and respect safe areas on iOS 16 and iOS 26.
+- Supplied StreamersHub filenames are clean on every browsing/playback surface;
+  About and exported files retain the original name. Full thumbnail is visible.
+- Swipe between every hero page before/after data arrives: no height changes or
+  stolen horizontal gestures. Portrait channel cards remain horizontal rails.
+- Play/Info targets remain reachable; long press still exposes all prior actions.
+- Player row does not overlap or wrap in either orientation. Verify horizontal
+  access at accessibility sizes, all tools, real playing animation and Reduce Motion.

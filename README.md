@@ -146,7 +146,8 @@ not every possible file is guaranteed playable.
 
 ## Build and install
 
-Requires macOS and full Xcode. Minimum deployment target: **iOS 16**. The verified
+Requires macOS and full Xcode. Minimum deployment target: **iOS 16**. CI now uses
+`macos-26` for the iOS 26 SDK and native system tab appearance. The verified
 historical runner used Xcode 16.4 / iOS 18.5 SDK; iOS 27-specific SDK behavior and
 appearance are not verified by Linux checks.
 

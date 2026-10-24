@@ -46,13 +46,18 @@ final class Telegram {
         this.context = context; secure = new SecureStore(context);
         io.execute(() -> {
             try {
-                String saved = secure.get("credentials");
-                if (saved != null) {
-                    JSONObject data = new JSONObject(saved);
-                    connect(data.getString("id"), data.getString("hash"));
-                }
+                connectUsingBuildCredentials();
             } catch (Exception e) { fail("Could not restore credentials: " + e.getMessage()); }
         });
+    }
+    void connectUsingBuildCredentials() throws Exception {
+        try (java.io.InputStream input = context.getAssets().open("telegram-build-credentials.json")) {
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[1024]; int count;
+            while ((count = input.read(buffer)) != -1) bytes.write(buffer, 0, count);
+            JSONObject data = new JSONObject(bytes.toString("UTF-8"));
+            connect(data.getString("apiID"), data.getString("apiHash"));
+        }
     }
     void listen(Listener listener) { listeners.add(listener); }
     void unlisten(Listener listener) { listeners.remove(listener); }
@@ -60,7 +65,7 @@ final class Telegram {
     void fail(String message) { error = message; changed(); }
     synchronized void connect(String id, String hash) throws Exception {
         if (!id.matches("[1-9][0-9]{0,9}") || Long.parseLong(id) > Integer.MAX_VALUE || !hash.matches("[a-fA-F0-9]{32}"))
-            throw new IllegalArgumentException("Enter a valid Telegram API ID and 32-character API hash.");
+            throw new IllegalArgumentException("This build has invalid Telegram configuration. Install a configured build.");
         secure.put("credentials", Json.obj("id", id, "hash", hash).toString());
         apiId = id; apiHash = hash; error = ""; stage = "loading"; changed();
         if (client == 0) {

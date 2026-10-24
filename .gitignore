@@ -19,3 +19,6 @@ android/app/src/main/jniLibs/
 *.keystore
 
 Resources/TelegramBuildCredentials.plist
+
+android/telegram-config.local.json
+android/.kotlin/

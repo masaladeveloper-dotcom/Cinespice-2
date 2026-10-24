@@ -98,6 +98,7 @@ actor LibraryDatabase {
         }
         for row in try rows("SELECT list,video_id FROM saved_lists") { snapshot.savedLists[row[0], default: []].insert(row[1]) }
         snapshot.revision = revision
+        snapshot.browsing = LibraryBrowsing(snapshot: snapshot)
         return snapshot
     }
 

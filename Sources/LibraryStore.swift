@@ -15,17 +15,12 @@ final class LibraryStore: ObservableObject {
     private var mediaGeneration = UUID()
     var sessionID: UUID { generation }
 
-    var selectedCollections: [TelegramChat] { TelegramChat.ownerFirst(snapshot.collections.filter { snapshot.selected.contains($0.id) && $0.isCollection }) }
-    var videos: [TelegramVideo] {
-        let selected = Set(selectedCollections.map(\.id))
-        return snapshot.videos.filter { selected.contains($0.chatID) && !$0.isAudio }.sorted { $0.date == $1.date ? $0.messageID > $1.messageID : $0.date > $1.date }
-    }
-    var continueWatching: [TelegramVideo] {
-        videos.filter { snapshot.history[$0.id]?.canResume == true }.sorted { (snapshot.history[$0.id]?.updatedAt ?? .distantPast) > (snapshot.history[$1.id]?.updatedAt ?? .distantPast) }
-    }
-    var watchedVideos: [TelegramVideo] {
-        videos.filter { snapshot.history[$0.id] != nil }.sorted { (snapshot.history[$0.id]?.updatedAt ?? .distantPast) > (snapshot.history[$1.id]?.updatedAt ?? .distantPast) }
-    }
+    private var fileUpdates = LibraryFileUpdates()
+    private var filePublishTask: Task<Void, Never>?
+    var selectedCollections: [TelegramChat] { snapshot.browsing.collections }
+    var videos: [TelegramVideo] { snapshot.browsing.videos }
+    var continueWatching: [TelegramVideo] { snapshot.browsing.continuing }
+    var watchedVideos: [TelegramVideo] { snapshot.browsing.watched }
 
     func activate(accountID: Int64) async throws {
         deactivate()
@@ -44,6 +39,7 @@ final class LibraryStore: ObservableObject {
 
     func deactivate() {
         generation = UUID(); accountID = nil; database = nil; thumbnails = nil
+        filePublishTask?.cancel(); filePublishTask = nil; fileUpdates = LibraryFileUpdates()
         fileStates = [:]; snapshot = LibrarySnapshot(); isReady = false; error = ""
     }
 
@@ -78,7 +74,7 @@ final class LibraryStore: ObservableObject {
         await update { try await $0.setSaved(video, list: list, saved: saved) }
     }
     func display(_ video: TelegramVideo) -> TelegramVideo {
-        guard let status = fileStates[video.fileID] else { return video }
+        guard let status = fileUpdates.latest[video.fileID] else { return video }
         var copy = video
         copy.size = status.size; copy.localPath = status.path
         copy.downloadedBytes = status.downloaded; copy.isDownloaded = status.complete
@@ -86,14 +82,21 @@ final class LibraryStore: ObservableObject {
     }
     func updateFile(_ file: [String: Any]) {
         guard let status = LocalFileStatus(file) else { return }
-        let wasComplete = fileStates[status.id]?.complete == true
-        fileStates[status.id] = status
-        if status.complete && !wasComplete && snapshot.videos.contains(where: { $0.fileID == status.id }) {
+        let completed = fileUpdates.receive(status, knownFiles: snapshot.browsing.fileIDs)
+        if completed {
             let session = generation, media = mediaGeneration
             Task {
                 guard generation == session, mediaGeneration == media else { return }
                 _ = await update { try await $0.saveCompletedFile(status) }
             }
+        }
+        guard fileUpdates.hasPending, filePublishTask == nil else { return }
+        filePublishTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 200_000_000) } catch { return }
+            guard let self else { return }
+            let batch = self.fileUpdates.drain()
+            self.filePublishTask = nil
+            if !batch.isEmpty { self.fileStates.merge(batch) { _, latest in latest } }
         }
     }
     func record(_ video: TelegramVideo, position: Double, duration: Double, completed: Bool = false, updatedAt: Date = Date()) async {
@@ -102,7 +105,7 @@ final class LibraryStore: ObservableObject {
         _ = await update { try await $0.save(progress: progress, video: video) }
     }
     @discardableResult func clearHistory(videoID: String? = nil) async -> Bool { await update { try await $0.clearHistory(videoID: videoID) } }
-    func invalidateMediaCache() async -> Bool { mediaGeneration = UUID(); fileStates = [:]; return await update { try await $0.invalidateMediaCache() } }
+    func invalidateMediaCache() async -> Bool { mediaGeneration = UUID(); filePublishTask?.cancel(); filePublishTask = nil; fileUpdates = LibraryFileUpdates(); fileStates = [:]; return await update { try await $0.invalidateMediaCache() } }
     func clearThumbnails() async throws { try await thumbnails?.clear(); artworkGeneration += 1 }
     func thumbnailBytes() async throws -> Int { try await thumbnails?.bytes() ?? 0 }
     func report(_ message: String) { error = message }

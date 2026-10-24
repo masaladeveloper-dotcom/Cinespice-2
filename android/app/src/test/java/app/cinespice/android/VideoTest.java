@@ -10,6 +10,13 @@ public class VideoTest {
                 kind, Json.obj("file_name", name, "mime_type", mime, "duration", 60,
                     kind, Json.obj("id", 7, "size", 5000000000L)), "caption", Json.obj("text", "A title")));
     }
+    @Test public void cleansDisplayTitleWithoutChangingOriginalMetadata() {
+        String raw = "Tg @StreamersHub Demon_Slayer - Kimetsu no Yaiba Infinity C.mkv MKV";
+        Video video = Video.fromMessage(message("video", raw, "video/x-matroska"));
+        assertEquals("Demon Slayer - Kimetsu no Yaiba Infinity C", video.displayTitle);
+        assertEquals(raw, video.name);
+        assertEquals(raw, new Video(video.data).name);
+    }
     @Test public void decodesLargeIdentifiersAndFilesWithoutTruncation() {
         Video video = Video.fromMessage(message("video", "film.mp4", "video/mp4"));
         assertNotNull(video); assertEquals(5000000000L, video.size); assertEquals(-1001234567890L, video.chatId);
